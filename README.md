@@ -13,7 +13,30 @@ stando daemon  ── runs CLIs, owns keys and spike folders, listens on ~/.stan
 Closing the app never stops a session. Web pages can't reach a Unix socket, so only local programs can
 drive the daemon.
 
-## Run
+## Install
+
+On a Mac, build the app straight into `/Applications`:
+
+```bash
+npx stando install
+```
+
+It downloads Electron's release (about 130 MB, checked against Electron's published checksums, or reused
+from Electron's cache), puts stando inside it, signs it for your Mac and deletes the temp files. Nothing is
+downloaded through a browser, so it opens without a Gatekeeper prompt. Run it again to update;
+`npx stando uninstall` removes the app and leaves your sessions and keys alone.
+
+For the CLI on any platform:
+
+```bash
+npm install -g stando
+stando help
+```
+
+stando runs agent CLIs; it doesn't include them. Install and log in to `claude` (or another runner) first,
+or add an API key under Settings → Keys.
+
+## Run from a clone
 
 ```bash
 npm install
@@ -133,3 +156,7 @@ for claude, `--yolo` for qwen and hermes. With no key chosen, the CLI uses its o
 ```json
 { "codex": { "kind": "text", "argv": ["codex", "exec", "--full-auto", "{prompt}"], "provider": "openai" } }
 ```
+
+## License
+
+MIT. Geist (in `app/fonts`) is under the SIL Open Font License.

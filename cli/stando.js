@@ -38,6 +38,10 @@ const HELP = `stando — run agent CLIs as sessions you can watch and steer from
   stando clean [-n] [--all] [--force]
         clean up closed sessions that are merged and clean; -n shows what would happen
   stando name [new name]   show or rename your stando
+  stando install [--dir <folder>] [--fresh]
+        build Stando.app into /Applications (or ~/Applications) from Electron's release; macOS only.
+        Reuses Electron's download cache unless --fresh; temp files are removed afterwards.
+  stando uninstall         remove Stando.app (your sessions, keys and ~/spikes stay)
   stando app               open the desktop app
   stando daemon            run the daemon in the foreground (logs to the terminal)
 
@@ -167,9 +171,33 @@ async function main() {
     await import('../daemon/main.js');
     return;
   }
+  if (cmd === 'install') {
+    const { install } = await import('./install.js');
+    const f = parseFlags(rest, { '--dir': 'dir', '--fresh': true });
+    const target = await install({ dir: f.dir && path.resolve(f.dir), fresh: !!f.fresh });
+    console.log(dim('Open it from Applications, or: stando app'));
+    if (fs.existsSync(SOCKET)) console.log(dim('A stando daemon is already running; it keeps its old code until it restarts.'));
+    if (!f.dir && !target.startsWith('/Applications/')) console.log(dim(`(${path.dirname(target)} was used because /Applications isn't writable)`));
+    return;
+  }
+  if (cmd === 'uninstall') {
+    const { uninstall } = await import('./install.js');
+    const f = parseFlags(rest, { '--dir': 'dir' });
+    const removed = uninstall({ dir: f.dir && path.resolve(f.dir) });
+    console.log(removed.length ? `removed ${removed.join(', ')}` : 'Stando.app is not installed');
+    console.log(dim('Sessions, keys and settings stay in ~/.stando and ~/spikes; delete those yourself if you want them gone.'));
+    return;
+  }
   if (cmd === 'app') {
+    // The installed app if there is one; otherwise Electron from npm, at the version stando is built for.
+    const { installedApp, ELECTRON_VERSION } = await import('./install.js');
+    const installed = installedApp();
+    if (installed) { spawn('open', [installed], { detached: true, stdio: 'ignore' }).unref(); return; }
     const root = fileURLToPath(new URL('..', import.meta.url));
-    spawn('npx', ['electron', root], { cwd: root, detached: true, stdio: 'ignore' }).unref();
+    const local = path.join(root, 'node_modules', '.bin', 'electron');
+    const [bin, args] = fs.existsSync(local) ? [local, [root]] : ['npx', ['-y', `electron@${ELECTRON_VERSION}`, root]];
+    if (bin === 'npx') console.log(dim('Starting Electron through npx (downloads it the first time). `stando install` makes a proper app.'));
+    spawn(bin, args, { cwd: root, detached: true, stdio: 'ignore' }).unref();
     return;
   }
 

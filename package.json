@@ -1,11 +1,43 @@
 {
   "name": "stando",
   "version": "0.1.0",
+  "productName": "Stando",
   "description": "Agent multiplexer: one daemon supervises agent CLI sessions; an Electron app and a CLI view and steer them.",
+  "keywords": [
+    "agents",
+    "claude",
+    "claude-code",
+    "cli",
+    "electron",
+    "multiplexer",
+    "worktree"
+  ],
+  "homepage": "https://github.com/zombico/stando#readme",
+  "bugs": {
+    "url": "https://github.com/zombico/stando/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zombico/stando.git"
+  },
+  "license": "MIT",
+  "author": "Franz Ombico",
   "type": "module",
-  "private": true,
-  "bin": { "stando": "cli/stando.js" },
+  "bin": {
+    "stando": "cli/stando.js"
+  },
   "main": "app/main.js",
+  "files": [
+    "app",
+    "cli",
+    "daemon",
+    "shared",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "app": "electron .",
     "daemon": "node daemon/main.js",
