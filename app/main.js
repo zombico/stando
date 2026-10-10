@@ -55,7 +55,7 @@ function createWindow() {
     minHeight: 560,
     title: 'stando',
     titleBarStyle: 'hiddenInset',
-    backgroundColor: '#1a1a19',
+    backgroundColor: '#07090c',
     icon: path.join(here, 'icon.png'),
     webPreferences: {
       preload: path.join(here, 'preload.cjs'),

@@ -10,14 +10,19 @@ import { SOCKET } from '../shared/protocol.js';
 
 const HELP = `stando — run agent CLIs as sessions you can watch and steer from the app or here
 
-  stando run [-r runner] [-k key] [-m model] [-i image] [-d] "prompt"
+  stando run [-r runner] [-k key] [-m model] [-e effort] [-i image] [-d] "prompt"
         fresh session in its own spike folder; attaches unless -d (detach)
+        -m: a model alias or full name (claude: fable, opus, sonnet, haiku); -e: thinking level
+        (claude: low, medium, high, xhigh, max)
   stando run --repo <dir> [--base branch] [--here] "prompt"
         repo session: new branch stando/<id> in its own worktree, from --base (default: current branch);
         --here works in the repo's own working copy instead
   stando attach <ref>      follow a session and chat from the terminal (ctrl-c detaches)
   stando send <ref> "text" [-i image]   queue a message without attaching; -i attaches an image (repeatable)
   stando ls [-a]           sessions (-a includes closed)
+  stando set <ref> [-m model] [-e effort] [-k key] [-r runner]
+        change settings for the next turn; pass "" to go back to the default
+  stando models [runner]   model suggestions and thinking levels per runner
   stando pause <ref>       end the running turn and hold the queue
   stando resume <ref>
   stando close <ref>       pause and hide from the list (folder stays)
@@ -77,7 +82,7 @@ function printEvent(ev, { seenTools = new Map() } = {}) {
       for (const img of ev.images || []) console.log(dim('  ▣ ') + link(img, path.basename(img)));
       break;
     case 'turn_start':
-      console.log(dim(`● ${ev.runner}${ev.key ? ' · ' + ev.key : ' · own login'}${ev.model ? ' · ' + ev.model : ''}`));
+      console.log(dim(`● ${ev.runner}${ev.key ? ' · ' + ev.key : ' · own login'}${ev.model ? ' · ' + ev.model : ''}${ev.effort ? ' · ' + ev.effort : ''}`));
       break;
     case 'text':
       console.log(`${c('35', 'agent›')} ${linkify(ev.text)}`);
@@ -175,11 +180,11 @@ async function main() {
   try {
     switch (cmd) {
       case 'run': {
-        const f = parseFlags(rest, { '-r': 'runner', '-k': 'key', '-m': 'model', '--in': 'cwd', '-t': 'title', '-d': true, '-i': 'images[]', '--repo': 'repo', '--here': true, '--base': 'base' });
+        const f = parseFlags(rest, { '-r': 'runner', '-k': 'key', '-m': 'model', '-e': 'effort', '--in': 'cwd', '-t': 'title', '-d': true, '-i': 'images[]', '--repo': 'repo', '--here': true, '--base': 'base' });
         const prompt = f._.join(' ');
         if (!prompt && !f.images) throw new Error('give the session a first prompt: stando run "…"');
         const meta = await client.call('create', {
-          runner: f.runner, key: f.key, model: f.model, cwd: f.cwd, title: f.title, prompt, images: imageArgs(f.images),
+          runner: f.runner, key: f.key, model: f.model, effort: f.effort, cwd: f.cwd, title: f.title, prompt, images: imageArgs(f.images),
           repo: f.repo && path.resolve(f.repo), worktree: !f.here, base: f.base,
         });
         console.log(`${meta.runner} session ${link(meta.dir, meta.id)}`);
@@ -205,6 +210,26 @@ async function main() {
           if (m.closed && !all) return;
           console.log(`${String(i + 1).padStart(3)}  ${c(color[m.status] || '0', m.status.padEnd(8))} ${m.runner.padEnd(7)} ${(m.key || 'login').padEnd(12)} ${(m.mode === 'repo' ? m.branch : 'fresh').slice(0, 28).padEnd(28)} ${m.cost ? ('$' + m.cost.toFixed(2)).padStart(7) : ''.padStart(7)}  ${link(m.dir, m.id)}`);
         });
+        break;
+      }
+      case 'set': {
+        const f = parseFlags(rest, { '-m': 'model', '-e': 'effort', '-k': 'key', '-r': 'runner' });
+        const patch = {};
+        for (const k of ['model', 'effort', 'key', 'runner']) if (k in f) patch[k] = f[k] || null;
+        if (!f._[0] || !Object.keys(patch).length) throw new Error('stando set <ref> [-m model] [-e effort] [-k key] [-r runner]');
+        await client.call('update', { session: f._[0], ...patch });
+        const { meta } = await client.call('history', { session: f._[0] });
+        console.log(`${meta.runner} · ${meta.key || 'own login'} · ${meta.model || 'default model'} · ${meta.effort || 'default thinking'}`);
+        break;
+      }
+      case 'models': {
+        const { runnerInfo } = await client.call('state');
+        for (const [name, r] of Object.entries(runnerInfo)) {
+          if (rest[0] && name !== rest[0]) continue;
+          console.log(name);
+          console.log(`  models    ${r.models ? (r.models.length ? r.models.map((m) => m.value).join(', ') : dim('any name the CLI takes')) : dim('no model flag')}`);
+          console.log(`  thinking  ${r.efforts ? r.efforts.join(', ') : dim('not supported')}`);
+        }
         break;
       }
       case 'commit': {

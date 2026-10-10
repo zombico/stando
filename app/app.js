@@ -1,18 +1,20 @@
 // The page: holds view state, renders what the daemon pushes, sends what you type.
-const { el, markdown, mediaPreview, mediaKind, basename, toolSummary, fmtCost, kb, icon, hydrateIcons, graphRows, graphSvg, laneContinuation, refBadges, relTime, statusBadge, pathParts, diffView, LANE_W } = window.R;
+const { el, markdown, mediaPreview, mediaKind, basename, toolSummary, fmtCost, kb, icon, hydrateIcons, graphRows, graphSvg, laneContinuation, refBadges, relTime, avatar, statusBadge, pathParts, diffView, LANE_W } = window.R;
 const $ = (id) => document.getElementById(id);
 
 const state = {
   sessions: new Map(), // id → meta
   runners: [],
+  runnerInfo: {},   // runner → { models, efforts }
   keys: [],
+  theme: null,
   providers: [],
   current: null,
   tools: new Map(), // tool id → card, for the open session
   files: new Map(), // path → card, for the open session
   lastTurn: null,   // the agent block text gets appended to
   tab: 'chat',      // chat | git, for repo sessions
-  git: { selected: null, openCommit: null, timer: null },
+  git: { selected: null, openCommit: null, timer: null, filter: 'all', info: new Map() },
 };
 
 // View preferences, remembered per machine. Storage can be unavailable; defaults then apply.
@@ -82,6 +84,164 @@ function acceptPaste(textarea, att) {
 const composerAtt = attacher($('attach-list'), $('attach-input'));
 const newAtt = attacher($('new-attach-list'), $('new-attach-input'));
 
+// ---------- model and thinking pickers ----------
+
+const CUSTOM = '__custom';
+
+// Model toggle: auto (no flag, the CLI's own default), the runner's everyday models as buttons, and
+// "more…" for the rest of its list plus a free-text name for anything else the CLI takes.
+let pickerSeq = 0;
+function modelPicker(host, onChange) {
+  const name = 'model-' + ++pickerSeq;
+  const seg = el('div', { class: 'seg think', role: 'radiogroup', 'aria-label': 'Model' });
+  const more = el('select', { 'aria-label': 'More models', hidden: true });
+  const input = el('input', { placeholder: 'model name', spellcheck: 'false', hidden: true });
+  const none = el('span', { class: 'muted mono', text: 'this CLI takes no model flag', hidden: true });
+  host.append(el('div', { class: 'model-pick' }, seg, more, input, none));
+  let value = null;
+  const choose = (v) => { value = v || null; onChange?.(value); };
+  more.onchange = () => {
+    input.hidden = more.value !== CUSTOM;
+    if (more.value === CUSTOM) { input.focus(); if (input.value.trim()) choose(input.value.trim()); }
+    else choose(more.value);
+  };
+  input.onchange = () => input.value.trim() && choose(input.value.trim());
+  return {
+    get value() { return value; },
+    set(runnerName, v) {
+      const info = state.runnerInfo[runnerName] || {};
+      const models = info.models;
+      seg.hidden = !models;
+      none.hidden = !!models;
+      if (!models) { more.hidden = input.hidden = true; value = null; return; }
+      if (document.activeElement === input) return;
+      value = v || null;
+      // Buttons for the first group ("Latest" for claude), or the first few when there are no groups.
+      const firstGroup = models[0]?.group;
+      const quick = firstGroup ? models.filter((m) => m.group === firstGroup) : models.slice(0, 5);
+      const rest = models.filter((m) => !quick.includes(m));
+      const inQuick = quick.some((m) => m.value === value);
+      const inMore = !!value && !inQuick;
+      const radio = (val, text, title) => {
+        const r = el('input', { type: 'radio', name, value: val });
+        r.checked = val === '__more' ? inMore : val === (value || '');
+        r.onchange = () => {
+          more.hidden = val !== '__more' || !rest.length;
+          input.hidden = val !== '__more' || more.value !== CUSTOM;
+          if (val === '__more') { if (more.value === CUSTOM) input.focus(); else choose(more.value); }
+          else choose(val);
+        };
+        return el('label', { class: 'seg-opt', title }, r, el('span', { text }));
+      };
+      seg.replaceChildren(
+        radio('', info.defaultModel ? `auto · ${info.defaultModel}` : 'auto',
+          info.defaultModel ? `No --model flag: the CLI's own default, ${info.defaultModel} right now` : "No --model flag: the CLI's own default"),
+        ...quick.map((m) => radio(m.value, m.value, m.label && m.label !== m.value ? `${m.label} (${m.value})` : m.value)),
+        radio('__more', rest.length ? 'more…' : 'custom…', rest.length ? 'Pinned versions, or any name the CLI takes' : 'Any name the CLI takes'));
+      more.replaceChildren(
+        ...rest.map((m) => el('option', { value: m.value, text: m.label && m.label !== m.value ? `${m.label} · ${m.value}` : m.value })),
+        el('option', { value: CUSTOM, text: 'Custom…' }));
+      const known = rest.some((m) => m.value === value);
+      more.value = inMore ? (known ? value : CUSTOM) : (rest[0]?.value ?? CUSTOM);
+      input.value = inMore && !known ? value : '';
+      more.hidden = !inMore || !rest.length;
+      input.hidden = !inMore || more.value !== CUSTOM;
+    },
+  };
+}
+
+// Default plus the runner's thinking levels, as a segmented control. Hidden when the runner has none.
+function effortPicker(host, name, onChange) {
+  const seg = el('div', { class: 'seg think', role: 'radiogroup', 'aria-label': 'Thinking level' });
+  host.append(seg);
+  let current = null;
+  return {
+    get value() { return seg.querySelector('input:checked')?.value || null; },
+    set(runnerName, value) {
+      const levels = state.runnerInfo[runnerName]?.efforts;
+      host.hidden = !levels?.length;
+      if (!levels?.length) { seg.replaceChildren(); return; }
+      current = levels.includes(value) ? value : '';
+      seg.replaceChildren(...['', ...levels].map((lv) => {
+        const input = el('input', { type: 'radio', name, value: lv });
+        input.checked = lv === current;
+        input.onchange = () => { current = lv; onChange?.(lv || null); };
+        return el('label', { class: 'seg-opt', title: lv ? `--effort ${lv}` : 'Whatever the CLI defaults to' }, input, el('span', { text: lv || 'auto' }));
+      }));
+    },
+  };
+}
+
+// The chips that say what a turn runs (or ran) on.
+function runChips({ runner, key, model, effort }) {
+  return [
+    el('span', { class: 'chip', text: runner }),
+    el('span', { class: 'chip', text: key || 'own login' }),
+    model ? el('span', { class: 'chip think', text: model }) : null,
+    effort ? el('span', { class: 'chip think', text: effort }) : null,
+  ];
+}
+
+// ---------- theme ----------
+
+// The concepts a theme colors; style.css documents what each one means.
+const THEME_GROUPS = [
+  ['Signals', [
+    ['live', 'Live', 'Running, connected, added'],
+    ['act', 'Act', 'Send, start, commit, merge'],
+    ['think', 'Think', 'Model and thinking level'],
+    ['record', 'Record', 'Branches, commits, notes'],
+    ['fault', 'Fault', 'Errors and deletions'],
+  ]],
+  ['Surfaces', [
+    ['void', 'Window', 'Behind everything'],
+    ['floor', 'Panes', 'Where you work'],
+    ['bench', 'Cards', 'Cards, inputs, messages'],
+    ['rail', 'Lines', 'Hairlines'],
+    ['rail-hi', 'Strong lines', 'Hovered and active borders'],
+  ]],
+  ['Ink', [
+    ['ink', 'Text', 'Body and titles'],
+    ['ink-soft', 'Secondary', 'Supporting text'],
+    ['ink-faint', 'Faint', 'Labels and hints'],
+  ]],
+];
+
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+const resolvedMode = () => {
+  const mode = state.theme?.mode || 'system';
+  return mode === 'system' ? (darkQuery.matches ? 'dark' : 'light') : mode;
+};
+
+function styleTag(id) {
+  let tag = document.getElementById(id);
+  if (!tag) { tag = document.createElement('style'); tag.id = id; document.head.append(tag); }
+  return tag;
+}
+
+function applyTheme(theme = state.theme) {
+  state.theme = theme || { mode: 'system', dark: {}, light: {} };
+  const mode = resolvedMode();
+  document.documentElement.dataset.theme = mode;
+  try { localStorage.setItem('stando.mode', mode); } catch {}
+  const block = (m) => {
+    const vars = Object.entries(state.theme[m] || {}).map(([k, v]) => `--${k}: ${v};`).join(' ');
+    return vars ? `:root[data-theme="${m}"] { ${vars} }` : '';
+  };
+  styleTag('theme-overrides').textContent = block('dark') + '\n' + block('light');
+  styleTag('theme-file'); // keeps theme.css after the overrides
+  if (!$('view-settings').hidden) renderAppearance();
+}
+
+async function loadThemeFile() {
+  try { styleTag('theme-file').textContent = await stando.call('theme.css'); } catch {}
+}
+
+darkQuery.addEventListener('change', () => applyTheme());
+
+// Paint the last mode right away, before the daemon answers.
+try { const m = localStorage.getItem('stando.mode'); if (m) document.documentElement.dataset.theme = m; } catch {}
+
 // ---------- views ----------
 
 function show(view) {
@@ -116,7 +276,9 @@ function renderSidebar() {
     el('div', { class: 'name', text: m.title }),
     el('div', { class: 'sub' },
       m.mode === 'repo' ? el('span', { class: 'repo-tag', title: m.branch }, icon('branch', 11), m.repo.split('/').pop()) : null,
-      `${m.runner} · ${m.key || 'own login'}${m.cost ? ' · ' + fmtCost(m.cost) : ''}`)),
+      `${m.runner}`,
+      m.model || m.effort ? el('span', { class: 'think-tag', text: ' · ' + [m.model, m.effort].filter(Boolean).join(' ') }) : null,
+      ` · ${m.key || 'own login'}${m.cost ? ' · ' + fmtCost(m.cost) : ''}`)),
   el('div', { class: 'row-acts' },
     m.closed
       ? rowAction('reopen', 'Reopen', () => act('reopen', m.id))
@@ -130,6 +292,8 @@ function renderSidebar() {
     $('empty-title').textContent = 'Pick a session';
     $('empty-body').textContent = 'Choose one on the left, or start a new one. Sessions keep running when you close this window.';
   }
+  $('session-count').textContent = String(all.length - closedCount).padStart(2, '0');
+  renderStatusbar();
   const sc = $('show-closed');
   sc.hidden = !closedCount;
   sc.textContent = prefs.showClosed ? 'Hide closed' : `Show closed (${closedCount})`;
@@ -148,7 +312,18 @@ const keyOptions = () => state.keys.map((k) => ({ value: k.name, label: `${k.nam
 function applyName(name) {
   state.name = name || 'stando';
   $('brand-name').textContent = state.name;
+  for (const c of document.querySelectorAll('.crumb-brand')) c.textContent = state.name;
   document.title = state.name;
+}
+
+function renderStatusbar() {
+  const all = [...state.sessions.values()];
+  const running = all.filter((m) => m.status === 'running').length;
+  $('sb-running').textContent = running ? `${running} running` : 'nothing running';
+  $('sb-running').classList.toggle('hot', !!running);
+  $('sb-sessions').textContent = `${all.filter((m) => !m.closed).length} open · ${all.filter((m) => m.closed).length} closed`;
+  const today = state.keys.reduce((sum, k) => sum + (k.today || 0), 0);
+  $('sb-spend').textContent = today ? `${fmtCost(today)} today on stando keys` : '';
 }
 
 function startRename() {
@@ -174,8 +349,12 @@ async function finishRename(save) {
 
 async function refreshState() {
   const s = await stando.call('state');
-  if (s.settings) applyName(s.settings.name);
+  // The 'connected' push can arrive before this page listens; an answer proves it either way.
+  $('conn').textContent = 'daemon connected';
+  $('conn').className = 'conn ok';
+  if (s.settings) { applyName(s.settings.name); applyTheme(s.settings.theme); }
   state.runners = s.runners;
+  state.runnerInfo = s.runnerInfo || {};
   state.keys = s.keys;
   state.providers = s.providers;
   state.sessions = new Map(s.sessions.map((m) => [m.id, m]));
@@ -183,10 +362,12 @@ async function refreshState() {
   const f = $('new-form');
   fillSelect(f.runner, state.runners, f.runner.value || 'claude');
   fillSelect(f.key, keyOptions(), f.key.value, { none: 'Own login (no key)' });
+  syncNewPickers();
   fillSelect($('key-form').provider, state.providers, $('key-form').provider.value || 'anthropic');
   renderKeys();
+  renderRunners();
   if (state.current) renderHeader();
-  else if (!state.sessions.size && $('view-session').hidden && $('view-new').hidden && $('view-keys').hidden) show('empty');
+  else if (!state.sessions.size && $('view-session').hidden && $('view-new').hidden && $('view-settings').hidden) show('empty');
 }
 
 // ---------- session view ----------
@@ -200,6 +381,9 @@ async function openSession(id) {
   state.lastTurn = null;
   state.git.selected = null;
   state.git.openCommit = null;
+  state.git.filter = 'all';
+  state.git.info.clear();
+  $('commit-card').hidden = true;
   $('finish-panel').hidden = true;
   gitError('');
   $('commit-msg').value = '';
@@ -285,7 +469,15 @@ async function loadGit() {
   let st;
   let log;
   try {
-    [st, log] = await Promise.all([stando.call('git.status', { session: id }), stando.call('git.log', { session: id })]);
+    const f = state.git.filter;
+    const refs = f === 'all' ? undefined : f === 'session' ? [m.branch, m.base] : [f];
+    let branches;
+    [st, log, branches] = await Promise.all([
+      stando.call('git.status', { session: id }),
+      stando.call('git.log', { session: id, refs }),
+      stando.call('git.branches', { session: id }),
+    ]);
+    renderGraphFilter(m, branches);
   } catch (err) {
     gitError(cleanErr(err));
     return;
@@ -363,9 +555,11 @@ function renderGraph({ commits, head }) {
     const c = r.commit;
     const row = el('div', {
       class: 'gcommit' + (c.hash === head ? ' is-head' : '') + (state.git.openCommit === c.hash ? ' open' : ''),
-      title: `${c.hash.slice(0, 8)} · ${c.author} · ${new Date(c.at).toLocaleString()}`,
       onclick: () => toggleCommit(c, row),
+      onmouseenter: () => hoverCommit(c, row),
+      onmouseleave: () => unhoverCommit(),
     }, graphSvg(r, width),
+    avatar(c.author, c.email),
     el('span', { class: 'subj', text: c.subject }),
     ...refBadges(c.refs),
     el('span', { class: 'who-time', text: `${c.author.split(' ')[0]} · ${relTime(c.at)}` }));
@@ -376,6 +570,71 @@ function renderGraph({ commits, head }) {
     const row = [...$('git-graph').children].find((r) => r.classList.contains('open'));
     if (c && row) expandCommit(c, row);
   }
+}
+
+function renderGraphFilter(m, branches) {
+  const sel = $('graph-filter');
+  const local = branches.filter((b) => !/^(origin|upstream)\//.test(b.name)).map((b) => b.name);
+  const remote = branches.filter((b) => /^(origin|upstream)\//.test(b.name)).map((b) => b.name);
+  const opts = [el('option', { value: 'all', text: 'All branches' })];
+  if (m.worktree) opts.push(el('option', { value: 'session', text: `This session: ${m.branch.replace(/^stando\//, '')} + ${m.base}` }));
+  if (local.length) opts.push(el('optgroup', { label: 'Branches' }, local.map((b) => el('option', { value: b, text: b }))));
+  if (remote.length) opts.push(el('optgroup', { label: 'Remote' }, remote.map((b) => el('option', { value: b, text: b }))));
+  sel.replaceChildren(...opts);
+  sel.value = [...sel.options].some((o) => o.value === state.git.filter) ? state.git.filter : 'all';
+}
+
+// ---------- commit hover card ----------
+
+let hoverTimer = null;
+let hideTimer = null;
+
+function hoverCommit(c, row) {
+  clearTimeout(hideTimer);
+  clearTimeout(hoverTimer);
+  hoverTimer = setTimeout(() => showCard(c, row), 350);
+}
+
+function unhoverCommit() {
+  clearTimeout(hoverTimer);
+  hideTimer = setTimeout(() => { $('commit-card').hidden = true; }, 200);
+}
+
+async function showCard(c, row) {
+  const card = $('commit-card');
+  let info = state.git.info.get(c.hash);
+  if (!info) {
+    try { info = await stando.call('git.commit', { session: state.current, hash: c.hash }); }
+    catch { return; }
+    state.git.info.set(c.hash, info);
+  }
+  const copy = el('button', { type: 'button', class: 'small', title: 'Copy the full hash' }, icon('copy', 12), c.hash.slice(0, 10));
+  copy.onclick = async () => {
+    try { await navigator.clipboard.writeText(c.hash); copy.lastChild.textContent = 'copied'; } catch {}
+  };
+  const s = info.stat || {};
+  card.replaceChildren(
+    el('div', { class: 'cc-head' },
+      avatar(c.author, c.email, 32),
+      el('div', {},
+        el('div', { class: 'cc-name', text: c.author }),
+        el('div', { class: 'muted cc-small', text: `${c.email} · ${new Date(c.at).toLocaleString()} (${relTime(c.at)} ago)`.replace('(now ago)', '(just now)') }))),
+    c.refs.length ? el('div', { class: 'cc-refs' }, ...refBadges(c.refs)) : null,
+    el('pre', { class: 'cc-body', text: info.body || c.subject }),
+    el('div', { class: 'cc-foot' },
+      el('span', { class: 'muted cc-small' },
+        `${s.files || info.files.length} file${(s.files || info.files.length) === 1 ? '' : 's'}`,
+        s.insertions ? el('span', { class: 'cc-add', text: ` +${s.insertions}` }) : null,
+        s.deletions ? el('span', { class: 'cc-del', text: ` −${s.deletions}` }) : null,
+        c.parents.length > 1 ? ` · merge of ${c.parents.length} parents` : ''),
+      copy));
+  const list = card.parentElement;
+  const top = row.offsetTop + row.offsetHeight + 4;
+  card.style.top = top + 'px';
+  card.hidden = false;
+  // Keep it inside the visible part of the list.
+  const overflow = top + card.offsetHeight - (list.scrollTop + list.clientHeight);
+  if (overflow > 0) card.style.top = Math.max(list.scrollTop + 4, row.offsetTop - card.offsetHeight - 4) + 'px';
 }
 
 async function toggleCommit(c, row) {
@@ -440,7 +699,11 @@ function renderHeader() {
   if (!repo && state.tab !== 'chat') setTab('chat');
   fillSelect($('s-runner'), state.runners, m.runner);
   fillSelect($('s-key'), keyOptions(), m.key, { none: 'Own login' });
-  if (document.activeElement !== $('s-model')) $('s-model').value = m.model || '';
+  headModel.set(m.runner, m.model);
+  headEffort.set(m.runner, m.effort);
+  const info = state.runnerInfo[m.runner] || {};
+  const model = m.model || (info.defaultModel ? `auto · ${info.defaultModel}` : null);
+  $('next-turn').replaceChildren(el('span', { text: 'next turn' }), ...runChips({ ...m, model, effort: info.efforts ? m.effort : null }).filter(Boolean));
   const paused = m.status === 'paused';
   const pb = $('s-pause');
   pb.dataset.icon = paused ? 'play' : 'pause';
@@ -482,7 +745,7 @@ function addEvent(ev, live = true) {
         ev.images?.length ? el('div', { class: 'user-images' }, ev.images.map((p) => mediaPreview(p))) : null));
       break;
     case 'turn_start':
-      agentBlock().append(el('div', { class: 'turn-meta', text: `${ev.runner} · ${ev.key || 'own login'}${ev.model ? ' · ' + ev.model : ''}` }));
+      agentBlock().append(el('div', { class: 'turn-meta' }, ...runChips(ev)));
       break;
     case 'text': {
       const b = agentBlock();
@@ -582,20 +845,109 @@ function renderKeys() {
         refreshState();
       },
     }, 'Remove'))));
-  $('keys-table').replaceChildren(...(rows.length ? rows : [el('tr', {}, el('td', { class: 'muted', text: 'No keys yet.' }))]));
+  $('keys-table').replaceChildren(...(rows.length ? rows : [el('tr', {}, el('td', { class: 'muted', text: 'No keys yet. Without one, a runner uses its CLI\'s own login.' }))]));
+}
+
+// ---------- settings: runners and appearance ----------
+
+function showSettings(pane = 'keys') {
+  show('settings');
+  for (const b of document.querySelectorAll('#settings-nav .nav-item')) b.classList.toggle('on', b.dataset.pane === pane);
+  for (const p of document.querySelectorAll('#view-settings .pane')) p.hidden = p.dataset.pane !== pane;
+  if (pane === 'appearance') renderAppearance();
+}
+
+function renderRunners() {
+  $('runner-list').replaceChildren(...state.runners.map((name) => {
+    const r = state.runnerInfo[name] || {};
+    const models = r.models;
+    return el('div', { class: 'runner' },
+      el('div', { class: 'runner-head' }, icon('cpu', 15), el('h3', { text: name }), r.provider ? el('span', { class: 'chip', text: r.provider }) : null),
+      el('div', { class: 'runner-row' }, el('span', { class: 'label', text: 'Models' }),
+        !models ? el('span', { class: 'muted', text: 'This CLI takes no model flag.' })
+          : models.length ? el('span', { class: 'chips' }, ...models.map((m) => el('span', { class: 'chip think', title: m.label || '', text: m.value })))
+            : el('span', { class: 'muted', text: 'No suggestions; type any name under Custom.' })),
+      el('div', { class: 'runner-row' }, el('span', { class: 'label', text: 'Thinking' }),
+        r.efforts?.length ? el('span', { class: 'chips' }, ...r.efforts.map((lv) => el('span', { class: 'chip think', text: lv })))
+          : el('span', { class: 'muted', text: 'Not supported by this CLI.' })));
+  }));
+  hydrateIcons($('runner-list'));
+}
+
+let themeSaveTimer = null;
+function saveTheme(patch) {
+  clearTimeout(themeSaveTimer);
+  themeSaveTimer = setTimeout(async () => {
+    try { $('theme-error').textContent = ''; applyTheme((await stando.call('settings.set', { theme: patch })).theme); }
+    catch (err) { $('theme-error').textContent = cleanErr(err); }
+  }, 250);
+}
+
+function renderAppearance() {
+  const mode = resolvedMode();
+  for (const r of document.querySelectorAll('input[name=theme-mode]')) r.checked = r.value === (state.theme?.mode || 'system');
+  $('theme-editing').textContent = `editing ${mode} mode`;
+  const overrides = state.theme?.[mode] || {};
+  const css = getComputedStyle(document.documentElement);
+  const cards = [];
+  for (const [group, tokens] of THEME_GROUPS) {
+    cards.push(el('div', { class: 'label tokens-group' }, el('span', { text: group })));
+    for (const [key, name, what] of tokens) {
+      const color = el('input', { type: 'color', value: css.getPropertyValue('--' + key).trim() || '#000000', 'aria-label': name });
+      const reset = el('button', { type: 'button', class: 'icon ghost row-act tk-reset', title: 'Back to the default' }, icon('undo', 13));
+      const card = el('div', { class: 'token' + (key in overrides ? ' changed' : '') },
+        color,
+        el('div', {}, el('div', { class: 'tk-name', text: name }), el('div', { class: 'tk-what', text: what }), el('div', { class: 'tk-var', text: '--' + key })),
+        reset);
+      // Preview while dragging, save when the picker settles.
+      color.oninput = () => document.documentElement.style.setProperty('--' + key, color.value);
+      color.onchange = () => {
+        document.documentElement.style.removeProperty('--' + key);
+        saveTheme({ [mode]: { ...(state.theme[mode] || {}), [key]: color.value } });
+      };
+      reset.onclick = () => {
+        const next = { ...(state.theme[mode] || {}) };
+        delete next[key];
+        saveTheme({ [mode]: next });
+      };
+      cards.push(card);
+    }
+  }
+  $('theme-tokens').replaceChildren(...cards);
 }
 
 // ---------- wiring ----------
 
 $('new-btn').onclick = () => { show('new'); $('new-form').prompt.focus(); };
 $('empty-new').onclick = () => $('new-btn').click();
-$('keys-btn').onclick = () => show('keys');
+$('settings-btn').onclick = () => showSettings('keys');
+for (const b of document.querySelectorAll('#settings-nav .nav-item')) b.onclick = () => showSettings(b.dataset.pane);
+for (const r of document.querySelectorAll('input[name=theme-mode]')) r.onchange = () => saveTheme({ mode: r.value });
+$('theme-reset').onclick = () => { if (confirm(`Reset every ${resolvedMode()} color to the default?`)) saveTheme({ [resolvedMode()]: {} }); };
+$('theme-reload').onclick = loadThemeFile;
 $('brand-name').onclick = startRename;
 $('brand-input').onkeydown = (e) => {
   if (e.key === 'Enter') { e.preventDefault(); finishRename(true); }
   if (e.key === 'Escape') { e.preventDefault(); finishRename(false); }
 };
 $('brand-input').onblur = () => finishRename(true);
+
+// New session: model and thinking follow the chosen runner.
+const newModel = modelPicker($('new-model-field'));
+const newEffort = effortPicker($('new-effort-field'), 'new-effort', () => syncEffortHint());
+function syncEffortHint() {
+  const v = newEffort.value;
+  $('effort-hint').textContent = $('new-effort-field').hidden ? '' : v
+    ? `Passes --effort ${v}. Higher levels think longer and cost more per turn.`
+    : 'auto leaves it to the CLI. You can change it between turns.';
+}
+function syncNewPickers() {
+  const f = $('new-form');
+  newModel.set(f.runner.value, newModel.value);
+  newEffort.set(f.runner.value, newEffort.value);
+  syncEffortHint();
+}
+$('new-form').runner.onchange = syncNewPickers;
 
 // New session: fresh folder or a repo.
 const MODE_HINTS = {
@@ -639,6 +991,9 @@ $('new-form').worktree.onchange = (e) => {
 // Session tabs and git view.
 for (const b of document.querySelectorAll('#s-tabs .tab')) b.onclick = () => setTab(b.dataset.tab);
 $('git-refresh').onclick = () => { gitError(''); loadGit(); };
+$('graph-filter').onchange = (e) => { state.git.filter = e.target.value; state.git.openCommit = null; loadGit(); };
+$('commit-card').onmouseenter = () => clearTimeout(hideTimer);
+$('commit-card').onmouseleave = () => unhoverCommit();
 $('commit-btn').onclick = commitNow;
 $('commit-msg').onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitNow(); } };
 $('commit-msg').oninput = () => gitError('');
@@ -684,7 +1039,7 @@ $('new-form').onsubmit = async (e) => {
     if (repoMode && !f.repo.value.trim()) { $('new-error').textContent = 'Choose a repository.'; return; }
     $('new-error').textContent = repoMode && f.worktree.checked ? 'Creating the worktree…' : '';
     const meta = await stando.call('create', {
-      runner: f.runner.value, key: f.key.value || null, model: f.model.value.trim() || null,
+      runner: f.runner.value, key: f.key.value || null, model: newModel.value, effort: newEffort.value,
       prompt, images: newAtt.payload(),
       ...(repoMode ? { repo: f.repo.value.trim(), worktree: f.worktree.checked, base: f.base.value || null } : {}),
     });
@@ -725,7 +1080,8 @@ $('input').onkeydown = (e) => {
 const patch = (fields) => stando.call('update', { session: state.current, ...fields }).catch((err) => alert(err.message));
 $('s-key').onchange = (e) => patch({ key: e.target.value || null });
 $('s-runner').onchange = (e) => patch({ runner: e.target.value });
-$('s-model').onchange = (e) => patch({ model: e.target.value.trim() || null });
+const headModel = modelPicker($('s-model-field'), (model) => patch({ model }));
+const headEffort = effortPicker($('s-effort-field'), 's-effort', (effort) => patch({ effort }));
 $('s-folder').onclick = () => { const m = state.sessions.get(state.current); if (m) stando.open(m.dir); };
 $('s-pause').onclick = () => {
   const m = state.sessions.get(state.current);
@@ -757,6 +1113,7 @@ stando.onPush((msg) => {
       $('conn').textContent = 'daemon connected';
       $('conn').className = 'conn ok';
       refreshState().then(() => state.current && openSession(state.current));
+      loadThemeFile();
       break;
     case 'disconnected':
       $('conn').textContent = 'daemon offline — reconnecting';
@@ -779,6 +1136,7 @@ stando.onPush((msg) => {
       break;
     }
     case 'event':
+      if (msg.event.t === 'turn_end' && msg.event.cost) refreshKeysSoon();
       if (msg.session === state.current) {
         addEvent(msg.event);
         const m = state.sessions.get(state.current);
@@ -787,6 +1145,7 @@ stando.onPush((msg) => {
       break;
     case 'settings':
       applyName(msg.settings.name);
+      applyTheme(msg.settings.theme);
       break;
     case 'forget':
       state.sessions.delete(msg.session);
@@ -798,6 +1157,16 @@ stando.onPush((msg) => {
   }
 });
 
+// Today's spend per key changes when a turn that cost something ends.
+let keysTimer = null;
+function refreshKeysSoon() {
+  clearTimeout(keysTimer);
+  keysTimer = setTimeout(async () => {
+    try { state.keys = (await stando.call('state')).keys; renderKeys(); renderStatusbar(); } catch {}
+  }, 800);
+}
+
 hydrateIcons();
 applyPrefs();
 refreshState().catch(() => {});
+loadThemeFile();

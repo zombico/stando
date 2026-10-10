@@ -31,6 +31,45 @@ stando pause 2 / resume 2 / close 2 / reopen 2
 stando send 2 -i shot.png "what is wrong here"   # attach images, repeatable
 ```
 
+## Models and thinking level
+
+Each runner lists the models its pickers offer and, if its CLI has one, its thinking levels. For `claude`
+that's the aliases `fable`, `opus`, `sonnet` and `haiku` (they follow the newest model of each family), the
+pinned names (`claude-opus-5-5` and so on), and `--effort` levels `low`, `medium`, `high`, `xhigh`, `max`.
+In the app the model is a toggle: **auto** passes no `--model`, so the CLI uses its own default, and
+stando reads that default from `~/.claude/settings.json` to show it (`auto · opus`). **more…** has the pinned
+names and Custom, for any other name the CLI accepts (or pass it to `-m`).
+
+Both are per session and can change between turns; the next turn picks them up and the conversation
+carries on. Every turn shows what it ran on. Switching runner drops a model or level the new CLI doesn't
+know.
+
+```bash
+stando run -m opus -e high "…"
+stando set 2 -m sonnet -e low      # "" goes back to the CLI's default
+stando models                      # what each runner offers
+```
+
+Add `models`, `effort: { flag, levels }` and `defaultModel: { file, key }` to a runner in `~/.stando/runners.json` to give other CLIs
+the same pickers.
+
+## Theme
+
+Colors in the app stand for concepts, not places: **live** (running, connected, added), **act** (anything
+that changes something: send, start, commit, merge), **think** (model and thinking level), **record**
+(branches, commits) and **fault** (errors, deletions), on surfaces from **void** to **bench**, with three
+inks. Dark is the default look (after mojulo's workshop); light and system modes come with it.
+
+Settings → Appearance changes any concept's color per mode; they're saved in `~/.stando/settings.json`.
+Anything else (fonts, radii, spacing) goes in `~/.stando/theme.css`, which loads after the app's styles:
+
+```css
+:root { --font-sans: "Inter"; --radius-card: 2px; }
+:root[data-theme="dark"] { --live: #7cf0a0; }
+```
+
+The tokens are documented at the top of `app/style.css`. Geist ships in `app/fonts` (SIL Open Font License).
+
 Images can be attached in the app (button, paste or drop) or with `-i`. They are saved to the session's
 `uploads/` folder and their paths are added to the prompt; the agent opens them with its own file tools.
 Stando doesn't check whether the model can see images.

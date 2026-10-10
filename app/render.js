@@ -101,7 +101,11 @@ const ICONS = {
   upload: '<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>',
   flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
-    clip: '<path d="M20 11.5l-7.6 7.6a5 5 0 0 1-7.1-7.1l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  palette: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.8 1.7-1.7 0-1.2-1-1.6-1-2.6 0-.9.7-1.7 1.7-1.7H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="14.5" cy="7" r="1.2"/>',
+  cpu: '<rect x="6" y="6" width="12" height="12" rx="1.5"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V6M15 2.5V6M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5"/>',
+  clip: '<path d="M20 11.5l-7.6 7.6a5 5 0 0 1-7.1-7.1l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/>',
 };
 
 function icon(name, size = 16) {
@@ -124,7 +128,8 @@ function hydrateIcons(root = document) {
 
 const LANE_W = 14;
 const ROW_H = 26;
-const LANE_COLORS = ['#4f8fe6', '#d9822b', '#3fa66a', '#c45bb8', '#d24d57', '#2fa3a3', '#a68a2a', '#7a6ee0'];
+// Lane colors are theme tokens (--lane-0 … --lane-7 in style.css).
+const LANE_COLORS = Array.from({ length: 8 }, (_, i) => `var(--lane-${i})`);
 const laneColor = (i) => LANE_COLORS[i % LANE_COLORS.length];
 
 // Assigns each commit a lane and the line segments around it, the way a graph log does:
@@ -170,7 +175,7 @@ function graphSvg(row, width) {
   for (const k of row.branching) line(x(row.idx), mid, x(k), ROW_H, laneColor(k));
   const col = laneColor(row.idx);
   const dot = row.commit.parents.length > 1
-    ? `<circle cx="${x(row.idx)}" cy="${mid}" r="4.5" fill="var(--panel)" stroke="${col}" stroke-width="2"/>`
+    ? `<circle cx="${x(row.idx)}" cy="${mid}" r="4.5" fill="var(--bench)" stroke="${col}" stroke-width="2"/>`
     : `<circle cx="${x(row.idx)}" cy="${mid}" r="4" fill="${col}"/>`;
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('width', width);
@@ -199,6 +204,19 @@ function refBadges(refs) {
     if (r.includes('/') && /^(origin|upstream)\//.test(r)) return el('span', { class: 'ref remote', text: r });
     return el('span', { class: 'ref', text: r });
   });
+}
+
+// Initials on a color picked from the email, so one person keeps one color. No network lookups.
+function avatar(name, email, size = 18) {
+  const words = (name || email || '?').trim().split(/\s+/);
+  const initials = ((words[0]?.[0] || '') + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+  let h = 0;
+  for (const ch of (email || name || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return el('span', {
+    class: 'avatar',
+    title: email ? `${name} <${email}>` : name,
+    style: `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.45)}px;background:hsl(${h % 360} 45% 42%)`,
+  }, initials);
 }
 
 function relTime(ms) {
@@ -241,5 +259,5 @@ function diffView(text) {
   return rows.length ? rows : [el('div', { class: 'muted pad', text: 'No textual changes (binary or mode change).' })];
 }
 
-window.R = { el, markdown, mediaPreview, mediaKind, basename, toolSummary, fmtCost, kb, escapeHtml, linkifyHtml, icon, hydrateIcons, graphRows, graphSvg, laneContinuation, refBadges, relTime, statusBadge, pathParts, diffView, LANE_W };
+window.R = { el, markdown, mediaPreview, mediaKind, basename, toolSummary, fmtCost, kb, escapeHtml, linkifyHtml, icon, hydrateIcons, graphRows, graphSvg, laneContinuation, refBadges, relTime, avatar, statusBadge, pathParts, diffView, LANE_W };
 })();

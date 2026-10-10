@@ -60,7 +60,7 @@ export class Session {
   // mode "fresh": the agent works in its own spike folder.
   // mode "repo": the agent works in a git repository, by default on a new branch in its own worktree
   // (~/.stando/worktrees/<id>) so parallel sessions never share a working copy.
-  static async create({ runner, key, model, cwd, title, prompt, repo, worktree = true, base }, emit) {
+  static async create({ runner, key, model, effort, cwd, title, prompt, repo, worktree = true, base }, emit) {
     if (!runners()[runner]) throw new Error(`unknown runner ${runner}; have ${Object.keys(runners()).join(', ')}`);
     const repoPath = repo || cwd;
     const root = repoPath ? await repoRoot(path.resolve(repoPath.replace(/^~(?=$|\/)/, process.env.HOME))).catch((e) => { if (repo) throw e; return null; }) : null;
@@ -70,7 +70,7 @@ export class Session {
     const dir = path.join(SPIKES, id);
     fs.mkdirSync(dir, { recursive: true });
     const meta = {
-      id, dir, runner, key: key || null, model: model || null,
+      id, dir, runner, key: key || null, model: model || null, effort: effort || null,
       mode: root ? 'repo' : 'fresh',
       cwd: cwd && !root ? path.resolve(cwd) : dir,
       title: title || (prompt ? prompt.slice(0, 60) : id),
@@ -120,9 +120,17 @@ export class Session {
   }
 
   update(patch) {
-    const allowed = ['key', 'model', 'title', 'runner'];
+    const allowed = ['key', 'model', 'effort', 'title', 'runner'];
+    const before = this.meta.runner;
     for (const k of allowed) if (k in patch) this.meta[k] = patch[k] || null;
-    if ('runner' in patch) this.meta.cliSession = null; // a different CLI can't resume the old one
+    if ('runner' in patch && patch.runner !== before) {
+      this.meta.cliSession = null; // a different CLI can't resume the old one
+      // A model or thinking level picked for the old CLI rarely means anything to the new one.
+      const next = runners()[this.meta.runner] || {};
+      const known = (r) => (r?.models || []).map((m) => m.value ?? m);
+      if (!('model' in patch) && known(runners()[before]).includes(this.meta.model) && !known(next).includes(this.meta.model)) this.meta.model = null;
+      if (!('effort' in patch) && !(next.effort?.levels || []).includes(this.meta.effort)) this.meta.effort = null;
+    }
     this.saveMeta();
   }
 
@@ -202,13 +210,14 @@ export class Session {
     const argv = runner.argv.map(fill);
     if (this.meta.cliSession && runner.resume) argv.push(...runner.resume.map(fill));
     if (this.meta.model && runner.modelFlag) argv.push(runner.modelFlag, this.meta.model);
+    if (this.meta.effort && runner.effort?.flag) argv.push(runner.effort.flag, this.meta.effort);
     if (this.meta.runner === 'claude') {
       argv.push('--append-system-prompt', spikeNote(this.meta));
       if (this.meta.cwd !== this.dir) argv.push('--add-dir', this.dir); // so it can read uploads and write scratch
     }
 
     this.append(images.length ? { t: 'user', text, source, images } : { t: 'user', text, source });
-    this.append({ t: 'turn_start', runner: this.meta.runner, key: this.meta.key, model: this.meta.model });
+    this.append({ t: 'turn_start', runner: this.meta.runner, key: this.meta.key, model: this.meta.model, effort: runner.effort?.flag ? this.meta.effort : null });
     this.meta.status = 'running';
     this.saveMeta();
 

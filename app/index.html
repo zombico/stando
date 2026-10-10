@@ -9,24 +9,25 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="shell">
   <aside id="side">
     <div class="drag side-top"></div>
+    <div class="brand-row">
+      <img src="icon.svg" alt="" width="20" height="20">
+      <button type="button" id="brand-name" class="brand-name" title="Rename your stando">stando</button>
+      <input id="brand-input" class="brand-input" maxlength="32" aria-label="Name" hidden>
+    </div>
     <div class="side-actions">
-      <button id="new-btn" class="primary" data-icon="plus">New session</button>
+      <button id="new-btn" class="act" data-icon="plus">New session</button>
     </div>
     <div class="filter">
-      <input id="filter" placeholder="Filter sessions">
+      <input id="filter" placeholder="Search sessions…">
     </div>
+    <div class="label side-label"><span>Sessions</span><span class="rule"></span><span id="session-count" class="num"></span></div>
     <ul id="sessions"></ul>
     <button id="show-closed" class="ghost" data-icon="archive" hidden></button>
     <footer class="side-foot">
-      <div class="brand-row">
-        <img src="icon.svg" alt="" width="22" height="22">
-        <button type="button" id="brand-name" class="brand-name" title="Rename your stando">stando</button>
-        <input id="brand-input" class="brand-input" maxlength="32" aria-label="Name" hidden>
-        <button id="keys-btn" class="ghost" data-icon="key" title="API keys">Keys</button>
-      </div>
-      <div id="conn" class="conn">connecting…</div>
+      <button id="settings-btn" class="ghost" data-icon="gear" title="Keys, appearance and runners">Settings</button>
     </footer>
   </aside>
 
@@ -35,24 +36,28 @@
     <section id="view-session" class="view" hidden>
       <header class="drag head">
         <div class="title-wrap">
+          <span class="crumb"><span class="crumb-brand"></span><span class="slash">/</span>Session</span>
           <h1 id="s-title"></h1>
           <span id="s-status" class="pill"></span>
           <span id="s-branch" class="branch-chip" hidden></span>
-          <span id="s-cost" class="muted"></span>
+          <span id="s-cost" class="num muted"></span>
         </div>
         <div class="controls no-drag">
-          <label>Runner <select id="s-runner"></select></label>
-          <label>Key <select id="s-key"></select></label>
-          <label>Model <input id="s-model" placeholder="default" size="14"></label>
-          <span class="sep"></span>
           <button id="s-pause" data-icon="pause" title="Pause: end the running turn and hold the queue">Pause</button>
-          <button id="s-folder" class="icon" data-icon="folder" title="Open the spike folder"></button>
-          <button id="s-code" class="icon" data-icon="code" title="Open the working copy in VS Code" hidden></button>
-          <button id="s-media" class="icon" data-icon="image" title="Collapse or expand media in the chat"></button>
-          <button id="s-files" class="icon" data-icon="panel" title="Show or hide the files panel"></button>
-          <button id="s-close" class="icon" data-icon="x" title="Close: pause and hide from the list. The folder stays."></button>
+          <span class="sep"></span>
+          <button id="s-folder" class="icon ghost" data-icon="folder" title="Open the spike folder"></button>
+          <button id="s-code" class="icon ghost" data-icon="code" title="Open the working copy in VS Code" hidden></button>
+          <button id="s-media" class="icon ghost" data-icon="image" title="Collapse or expand media in the chat"></button>
+          <button id="s-files" class="icon ghost" data-icon="panel" title="Show or hide the files panel"></button>
+          <button id="s-close" class="icon ghost" data-icon="x" title="Close: pause and hide from the list. The folder stays."></button>
         </div>
       </header>
+      <div class="runbar" id="s-runbar">
+        <label class="field"><span class="label">Runner</span><select id="s-runner"></select></label>
+        <label class="field"><span class="label">Key</span><select id="s-key"></select></label>
+        <div class="field model-field" id="s-model-field"><span class="label">Model</span></div>
+        <div class="field effort-field" id="s-effort-field"><span class="label">Thinking</span></div>
+      </div>
       <nav class="tabs" id="s-tabs" hidden>
         <button type="button" class="tab on" data-tab="chat" data-icon="chat">Chat</button>
         <button type="button" class="tab" data-tab="git" data-icon="branch">Git <span id="git-count" class="count"></span></button>
@@ -64,7 +69,7 @@
             <span id="git-branch" class="branch-chip"></span>
             <span id="git-ab" class="muted"></span>
             <span class="git-acts">
-              <button type="button" id="git-merge" class="small" data-icon="merge" title="Merge this branch into its base, in your working copy">Merge</button>
+              <button type="button" id="git-merge" class="small act" data-icon="merge" title="Merge this branch into its base, in your working copy">Merge</button>
               <button type="button" id="git-push" class="icon ghost" data-icon="upload" title="Push this branch to origin"></button>
               <button type="button" id="git-finish" class="icon ghost" data-icon="flag" title="Finish: remove the worktree, optionally delete the branch"></button>
               <button type="button" id="git-refresh" class="icon ghost" data-icon="reopen" title="Refresh"></button>
@@ -81,14 +86,14 @@
             <label class="check"><input type="checkbox" id="finish-delete"> Delete the branch too</label>
             <label class="check" id="finish-force-row"><input type="checkbox" id="finish-force"> Force: throw away uncommitted changes and unmerged commits</label>
             <div class="finish-acts">
-              <button type="button" id="finish-go" class="primary" data-icon="flag">Remove worktree</button>
+              <button type="button" id="finish-go" class="act" data-icon="flag">Remove worktree</button>
               <button type="button" id="finish-cancel">Cancel</button>
             </div>
           </div>
           <div id="git-work">
             <div class="commit-box">
               <textarea id="commit-msg" rows="2" placeholder="Commit message (⌘Enter to commit)"></textarea>
-              <button type="button" id="commit-btn" class="primary" data-icon="check">Commit</button>
+              <button type="button" id="commit-btn" class="act" data-icon="check">Commit</button>
             </div>
             <details class="git-sec" open id="staged-sec">
               <summary>Staged changes <span id="git-staged-count" class="count"></span>
@@ -103,8 +108,12 @@
           </div>
           <details class="git-sec" open>
             <summary>Graph</summary>
+            <div class="graph-tools">
+              <select id="graph-filter" aria-label="Branches shown in the graph"></select>
+            </div>
             <div id="git-graph"></div>
           </details>
+          <div id="commit-card" class="commit-card" hidden></div>
         </div>
         <div class="git-diff">
           <div id="diff-head" class="diff-head muted">Pick a file to see its diff</div>
@@ -112,20 +121,22 @@
         </div>
       </div>
       <form id="composer">
+        <div class="label composer-label"><span>Message</span><span id="next-turn" class="next-turn"></span></div>
         <div class="attach-list" id="attach-list"></div>
         <div class="composer-row">
         <input type="file" id="attach-input" accept="image/*" multiple hidden>
         <button type="button" id="attach-btn" class="icon ghost" data-icon="clip" title="Attach images (or paste or drop them)"></button>
         <textarea id="input" rows="2" placeholder="Message this session — Enter sends, Shift+Enter for a new line. Paste or drop images."></textarea>
-        <button type="submit" class="primary icon" data-icon="send" title="Send (Enter)"></button>
+        <button type="submit" class="act icon send" data-icon="send" title="Send (Enter)"></button>
         </div>
       </form>
     </section>
 
     <!-- new session -->
     <section id="view-new" class="view" hidden>
-      <header class="drag head"><h1>New session</h1></header>
+      <header class="drag head"><div class="title-wrap"><span class="crumb"><span class="crumb-brand"></span><span class="slash">/</span>New</span><h1>New session</h1></div></header>
       <form id="new-form" class="panel">
+        <div class="label sec"><span>Where</span><span class="rule"></span></div>
         <div class="seg" role="radiogroup" aria-label="Where the agent works">
           <label class="seg-opt"><input type="radio" name="mode" value="fresh" checked><span data-icon="spark">Fresh</span></label>
           <label class="seg-opt"><input type="radio" name="mode" value="repo"><span data-icon="branch">In a repo</span></label>
@@ -142,56 +153,108 @@
             <label class="check"><input type="checkbox" name="worktree" checked> Own branch in a separate worktree</label>
           </div>
         </div>
+        <div class="label sec"><span>Agent</span><span class="rule"></span></div>
         <div class="grid">
           <label>Runner <select name="runner"></select></label>
           <label>Key <select name="key"></select></label>
-          <label>Model <input name="model" placeholder="default"></label>
+          <div class="field model-field" id="new-model-field"><span class="flabel">Model</span></div>
         </div>
-        <label>First message
+        <div class="field effort-field" id="new-effort-field"><span class="flabel">Thinking level</span></div>
+        <p class="hint" id="effort-hint"></p>
+        <div class="label sec"><span>First message</span><span class="rule"></span></div>
+        <label class="bare">
           <textarea name="prompt" rows="6" placeholder="Make a looping 4-bar synth pad and render its waveform as a PNG"></textarea>
         </label>
         <div class="attach-list" id="new-attach-list"></div>
         <input type="file" id="new-attach-input" accept="image/*" multiple hidden>
         <button type="button" id="new-attach-btn" data-icon="clip">Attach images</button>
         <p id="new-error" class="error"></p>
-        <button type="submit" class="primary" data-icon="play">Start</button>
+        <button type="submit" class="act" data-icon="play">Start</button>
       </form>
     </section>
 
-    <!-- keys -->
-    <section id="view-keys" class="view" hidden>
-      <header class="drag head"><h1>Keys</h1></header>
-      <div class="panel">
-        <p class="muted">Stored in ~/.stando/keys.json, readable only by you. Values never come back to this window.</p>
-        <table id="keys-table"></table>
-        <h2>Add a key</h2>
-        <form id="key-form" class="grid">
-          <label>Name <input name="name" placeholder="anth-work" required></label>
-          <label>Provider <select name="provider"></select></label>
-          <label class="wide">Value <input name="value" type="password" autocomplete="off" required></label>
-          <p id="key-error" class="error wide"></p>
-          <button type="submit" class="primary" data-icon="key">Save key</button>
-        </form>
+    <!-- settings -->
+    <section id="view-settings" class="view" hidden>
+      <header class="drag head"><div class="title-wrap"><span class="crumb"><span class="crumb-brand"></span><span class="slash">/</span>Settings</span><h1>Settings</h1></div></header>
+      <div class="settings">
+        <nav class="settings-nav" id="settings-nav">
+          <button type="button" class="nav-item on" data-pane="keys" data-icon="key">Keys</button>
+          <button type="button" class="nav-item" data-pane="appearance" data-icon="palette">Appearance</button>
+          <button type="button" class="nav-item" data-pane="runners" data-icon="cpu">Runners &amp; models</button>
+        </nav>
+        <div class="settings-body">
+          <section class="pane" data-pane="keys">
+            <h2>Keys</h2>
+            <p class="muted">Stored in ~/.stando/keys.json, readable only by you. Values never come back to this window.</p>
+            <div class="card">
+              <div class="label"><span>Add a key</span><span class="rule"></span></div>
+              <form id="key-form" class="grid">
+                <label>Name <input name="name" placeholder="anth-work" required></label>
+                <label>Provider <select name="provider"></select></label>
+                <label class="wide">Value <input name="value" type="password" autocomplete="off" required></label>
+                <p id="key-error" class="error wide"></p>
+                <button type="submit" class="act" data-icon="key">Save key</button>
+              </form>
+            </div>
+            <div class="label"><span>Stored keys</span><span class="rule"></span></div>
+            <table id="keys-table" class="table"></table>
+          </section>
+
+          <section class="pane" data-pane="appearance" hidden>
+            <h2>Appearance</h2>
+            <p class="muted">Colors stand for ideas, not places. Change an idea's color and every part of the app that shows it follows.</p>
+            <div class="label"><span>Mode</span><span class="rule"></span></div>
+            <div class="seg" id="theme-mode" role="radiogroup" aria-label="Theme mode">
+              <label class="seg-opt"><input type="radio" name="theme-mode" value="system"><span>System</span></label>
+              <label class="seg-opt"><input type="radio" name="theme-mode" value="dark"><span>Dark</span></label>
+              <label class="seg-opt"><input type="radio" name="theme-mode" value="light"><span>Light</span></label>
+            </div>
+            <div class="label"><span>Colors</span><span id="theme-editing" class="label-note"></span><span class="rule"></span></div>
+            <div id="theme-tokens" class="tokens"></div>
+            <p id="theme-error" class="error"></p>
+            <div class="row-btns">
+              <button type="button" id="theme-reset" data-icon="undo">Reset this mode</button>
+              <button type="button" id="theme-reload" data-icon="reopen" title="Reload ~/.stando/theme.css">Reload theme.css</button>
+            </div>
+            <p class="hint">For anything beyond colors (fonts, corner radius, spacing) put CSS in <code>~/.stando/theme.css</code>. It loads after the app's own styles, so it can override any token, for example <code>:root { --font-sans: "Inter"; --radius-card: 2px; }</code>.</p>
+          </section>
+
+          <section class="pane" data-pane="runners" hidden>
+            <h2>Runners &amp; models</h2>
+            <p class="muted">The CLIs stando can run, with the models and thinking levels the pickers offer. Any model name the CLI accepts works; type it under Custom. Add or change runners in <code>~/.stando/runners.json</code>.</p>
+            <div id="runner-list"></div>
+          </section>
+        </div>
       </div>
     </section>
 
     <section id="view-empty" class="view empty">
       <div class="drag head"></div>
-      <div class="empty-body">
+      <div class="empty-body field-dots">
+        <div class="label"><span>Ready</span></div>
         <h1 id="empty-title">Start your first session</h1>
         <p class="muted" id="empty-body">Pick a runner and a key, give it a first message. It keeps running when you close this window.</p>
-        <button id="empty-new" class="primary" data-icon="plus">New session</button>
+        <button id="empty-new" class="act" data-icon="plus">New session</button>
       </div>
     </section>
   </main>
 
   <aside id="files" hidden>
     <div class="drag files-head">
-      <span class="files-title">Files <span id="file-count" class="count"></span></span>
+      <span class="files-title label"><span>Files</span><span id="file-count" class="num"></span></span>
       <button id="files-min" class="icon ghost" data-icon="minimize" title="Minimize files"></button>
     </div>
     <div id="file-grid"></div>
   </aside>
+
+  <footer id="statusbar">
+    <span id="conn" class="conn">connecting…</span>
+    <span id="sb-running" class="sb"></span>
+    <span id="sb-sessions" class="sb"></span>
+    <span class="sb-fill"></span>
+    <span id="sb-spend" class="sb"></span>
+  </footer>
+</div>
 
   <script src="render.js"></script>
   <script src="app.js"></script>

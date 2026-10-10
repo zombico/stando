@@ -65,19 +65,23 @@ export async function status(dir) {
 
 const SEP = '\x1f';
 
-// Commits across all branches, newest first in topological order; the app draws the lanes.
-export async function log(dir, { limit = 300 } = {}) {
-  const fmt = ['%H', '%P', '%an', '%at', '%D', '%s'].join(SEP);
-  const out = await git(dir, ['log', '--all', '--topo-order', `--max-count=${limit}`, `--format=${fmt}`, '--no-show-signature']);
+// Commits newest first in topological order; the app draws the lanes. `refs` limits the graph to
+// those branches (and their history); without it, every branch is included.
+export async function log(dir, { limit = 300, refs } = {}) {
+  const fmt = ['%H', '%P', '%an', '%ae', '%at', '%D', '%s'].join(SEP);
+  const which = refs?.length ? refs.filter((r) => /^[\w./-]+$/.test(r) && !r.startsWith('-')) : ['--all'];
+  if (!which.length) throw new Error('no valid branch names to show');
+  const out = await git(dir, ['log', ...which, '--topo-order', `--max-count=${limit}`, `--format=${fmt}`, '--no-show-signature', '--']);
   const head = (await git(dir, ['rev-parse', 'HEAD'], { okCodes: [0, 128] })).trim();
   return {
     head,
     commits: out.split('\n').filter(Boolean).map((l) => {
-      const [hash, parents, author, at, refs, subject] = l.split(SEP);
+      const [hash, parents, author, email, at, refs, subject] = l.split(SEP);
       return {
         hash,
         parents: parents ? parents.split(' ') : [],
         author,
+        email,
         at: Number(at) * 1000,
         refs: refs ? refs.split(', ').filter((r) => r !== 'refs/stash') : [],
         subject,
@@ -88,6 +92,9 @@ export async function log(dir, { limit = 300 } = {}) {
 
 export async function commitFiles(dir, hash) {
   const body = (await git(dir, ['show', '-s', '--format=%B', hash])).trim();
+  const short = (await git(dir, ['show', '--shortstat', '--format=', '--first-parent', hash])).trim();
+  const num = (re) => Number(short.match(re)?.[1] || 0);
+  const stat = { files: num(/(\d+) files? changed/), insertions: num(/(\d+) insertions?/), deletions: num(/(\d+) deletions?/) };
   const out = await git(dir, ['diff-tree', '--no-commit-id', '-r', '--root', '--name-status', '-z', '-m', '--first-parent', hash]);
   const parts = out.split('\0').filter(Boolean);
   const files = [];
@@ -96,7 +103,7 @@ export async function commitFiles(dir, hash) {
     if (st[0] === 'R' || st[0] === 'C') files.push({ status: st[0], from: parts[++i], path: parts[++i] });
     else files.push({ status: st[0], path: parts[++i] });
   }
-  return { body, files };
+  return { body, files, stat };
 }
 
 // Unified diff of one file: in the working tree (hash empty) or in a commit.

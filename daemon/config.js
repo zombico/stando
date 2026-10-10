@@ -17,6 +17,8 @@ export const PROVIDERS = {
 
 // kind "stream-json": the CLI prints Claude-style JSON events and resumes by session id.
 // kind "text": plain output; every turn is a fresh one-shot run.
+// `models` are suggestions for the pickers; any name the CLI accepts still works.
+// `effort` is the thinking level: the flag and the levels the CLI accepts, in order.
 // Approvals are off on purpose: the operator chose to trust these runs.
 // Override or add runners in ~/.stando/runners.json.
 export const DEFAULT_RUNNERS = {
@@ -26,6 +28,20 @@ export const DEFAULT_RUNNERS = {
       '--dangerously-skip-permissions'],
     resume: ['--resume', '{session}'],
     modelFlag: '--model',
+    // Aliases follow the newest model of each family, so they don't go stale; pinned names don't move.
+    models: [
+      { value: 'fable', label: 'Fable', group: 'Latest' },
+      { value: 'opus', label: 'Opus', group: 'Latest' },
+      { value: 'sonnet', label: 'Sonnet', group: 'Latest' },
+      { value: 'haiku', label: 'Haiku', group: 'Latest' },
+      { value: 'claude-fable-5-1', label: 'Fable 5.1', group: 'Pinned' },
+      { value: 'claude-opus-5-5', label: 'Opus 5.5', group: 'Pinned' },
+      { value: 'claude-sonnet-5-5', label: 'Sonnet 5.5', group: 'Pinned' },
+      { value: 'claude-haiku-5-5', label: 'Haiku 5.5', group: 'Pinned' },
+    ],
+    effort: { flag: '--effort', levels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+    // Where the CLI keeps its own default, so "auto" can say what it means.
+    defaultModel: { file: '~/.claude/settings.json', key: 'model' },
     provider: 'anthropic',
   },
   qwen: {
@@ -58,7 +74,30 @@ function write(name, data) {
 // ---------- settings ----------
 // What the operator calls their stando; shown in the app and the CLI.
 
-export const settings = () => ({ name: 'stando', ...read('settings.json', {}) });
+// The theme is a mode plus per-mode overrides of the app's concept colors (see app/style.css).
+
+export const THEME_MODES = ['system', 'dark', 'light'];
+export const THEME_TOKENS = ['void', 'floor', 'bench', 'rail', 'rail-hi', 'ink', 'ink-soft', 'ink-faint',
+  'live', 'act', 'think', 'record', 'fault'];
+
+const defaultTheme = () => ({ mode: 'system', dark: {}, light: {} });
+
+export const settings = () => {
+  const s = { name: 'stando', ...read('settings.json', {}) };
+  s.theme = { ...defaultTheme(), ...(s.theme || {}) };
+  return s;
+};
+
+function cleanTokens(tokens) {
+  const out = {};
+  for (const [k, v] of Object.entries(tokens || {})) {
+    if (!THEME_TOKENS.includes(k)) throw new Error(`unknown theme color ${k}; have ${THEME_TOKENS.join(', ')}`);
+    if (v == null || v === '') continue;
+    if (!/^#[0-9a-f]{6}$/i.test(v)) throw new Error(`${k}: use a color like #5eead4`);
+    out[k] = v.toLowerCase();
+  }
+  return out;
+}
 
 export function saveSettings(patch) {
   const next = { ...settings() };
@@ -66,11 +105,57 @@ export function saveSettings(patch) {
     const name = String(patch.name || '').trim().slice(0, 32);
     next.name = name || 'stando';
   }
+  if ('theme' in patch) {
+    const t = patch.theme || {};
+    const theme = { ...next.theme };
+    if ('mode' in t) {
+      if (!THEME_MODES.includes(t.mode)) throw new Error(`theme mode: ${THEME_MODES.join(', ')}`);
+      theme.mode = t.mode;
+    }
+    for (const m of ['dark', 'light']) if (m in t) theme[m] = cleanTokens(t[m]);
+    next.theme = theme;
+  }
   write('settings.json', next);
   return next;
 }
 
+// Anything else, for whoever wants more than colors: ~/.stando/theme.css loads after the app's own.
+export function themeCss() {
+  try { return fs.readFileSync(path.join(HOME, 'theme.css'), 'utf8'); } catch { return ''; }
+}
+
 export const runners = () => ({ ...DEFAULT_RUNNERS, ...read('runners.json', {}) });
+
+// The model a CLI uses when stando passes none, read from the CLI's own settings file; null if unknown.
+function cliDefaultModel(r) {
+  const d = r.defaultModel;
+  if (!d) return null;
+  if (typeof d === 'string') return d;
+  try {
+    const file = d.file.replace(/^~(?=\/)/, process.env.HOME);
+    const v = JSON.parse(fs.readFileSync(file, 'utf8'))[d.key];
+    return typeof v === 'string' && v ? v : null;
+  } catch { return null; }
+}
+
+// What the pickers need to know about each runner. Never argv or env.
+export function runnersPublic() {
+  return Object.fromEntries(Object.entries(runners()).map(([name, r]) => [name, {
+    models: r.modelFlag ? (r.models || []).map((m) => (typeof m === 'string' ? { value: m, label: m } : m)) : null,
+    defaultModel: r.modelFlag ? cliDefaultModel(r) : null,
+    efforts: r.effort?.flag ? r.effort.levels || [] : null,
+    provider: r.provider || null,
+  }]));
+}
+
+// Throws unless `effort` is a level this runner accepts (or empty).
+export function checkEffort(runnerName, effort) {
+  if (!effort) return;
+  const r = runners()[runnerName];
+  if (!r?.effort?.flag) throw new Error(`${runnerName} has no thinking levels`);
+  const levels = r.effort.levels || [];
+  if (levels.length && !levels.includes(effort)) throw new Error(`thinking level for ${runnerName}: ${levels.join(', ')}`);
+}
 
 // ---------- keys ----------
 // keys.json maps a short name ("anth-work") to {provider, value, env}.

@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import { HOME, SPIKES, SOCKET, lineReader } from '../shared/protocol.js';
-import { runners, keysPublic, addKey, removeKey, hasKey, PROVIDERS, settings, saveSettings } from './config.js';
+import { runners, runnersPublic, checkEffort, keysPublic, addKey, removeKey, hasKey, PROVIDERS, settings, saveSettings, themeCss } from './config.js';
 import { Session, loadAll } from './session.js';
 import * as git from './git.js';
 
@@ -39,6 +39,7 @@ const ops = {
   state: () => ({
     sessions: [...sessions.values()].map((s) => s.meta).sort((a, b) => a.created - b.created),
     runners: Object.keys(runners()),
+    runnerInfo: runnersPublic(),
     keys: keysPublic(),
     providers: Object.keys(PROVIDERS),
     settings: settings(),
@@ -48,14 +49,17 @@ const ops = {
     emit('settings', { settings: next });
     return next;
   },
+  'theme.css': () => themeCss(),
   subscribe: (_args, sock) => { subscribers.add(sock); return true; },
   history: ({ session }) => {
     const s = find(session);
     return { meta: s.meta, events: s.history(), files: s.listFiles() };
   },
-  create: async ({ runner = 'claude', key, model, cwd, title, prompt, images, repo, worktree, base }) => {
+  create: async ({ runner = 'claude', key, model, effort, cwd, title, prompt, images, repo, worktree, base }) => {
     checkKey(key);
-    const s = await Session.create({ runner, key, model, cwd, title, prompt: prompt || (images?.length ? 'image' : ''), repo, worktree, base }, emit);
+    if (!runners()[runner]) throw new Error(`unknown runner ${runner}; have ${Object.keys(runners()).join(', ')}`);
+    checkEffort(runner, effort);
+    const s = await Session.create({ runner, key, model, effort, cwd, title, prompt: prompt || (images?.length ? 'image' : ''), repo, worktree, base }, emit);
     sessions.set(s.id, s);
     if (prompt || images?.length) s.send(prompt, 'new', images);
     return s.meta;
@@ -71,7 +75,9 @@ const ops = {
   update: ({ session, ...patch }) => {
     if ('key' in patch) checkKey(patch.key);
     if ('runner' in patch && !runners()[patch.runner]) throw new Error(`unknown runner ${patch.runner}`);
-    find(session).update(patch);
+    const s = find(session);
+    if (patch.effort) checkEffort(patch.runner || s.meta.runner, patch.effort);
+    s.update(patch);
     return true;
   },
   // Pause ends the running turn and holds the queue; sending a message or resume picks it back up.
@@ -85,7 +91,7 @@ const ops = {
   'keys.remove': ({ name }) => { removeKey(name); return keysPublic(); },
   // Git view, read-only. Runs in the session's working copy.
   'git.status': ({ session }) => git.status(repoCwd(session)),
-  'git.log': ({ session, limit }) => git.log(repoCwd(session), { limit }),
+  'git.log': ({ session, limit, refs }) => git.log(repoCwd(session), { limit, refs }),
   'git.commit': ({ session, hash }) => git.commitFiles(repoCwd(session), hash),
   'git.diff': ({ session, file, hash, untracked }) => git.diff(repoCwd(session), { file, hash, untracked }),
   'git.branches': ({ session }) => git.branches(repoCwd(session)),
