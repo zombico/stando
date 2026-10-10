@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' file: data:; media-src 'self' file:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>stando</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="side">
+    <div class="drag side-top"></div>
+    <div class="side-actions">
+      <button id="new-btn" class="primary" data-icon="plus">New session</button>
+    </div>
+    <div class="filter">
+      <input id="filter" placeholder="Filter sessions">
+    </div>
+    <ul id="sessions"></ul>
+    <button id="show-closed" class="ghost" data-icon="archive" hidden></button>
+    <footer class="side-foot">
+      <div class="brand-row">
+        <img src="icon.svg" alt="" width="22" height="22">
+        <button type="button" id="brand-name" class="brand-name" title="Rename your stando">stando</button>
+        <input id="brand-input" class="brand-input" maxlength="32" aria-label="Name" hidden>
+        <button id="keys-btn" class="ghost" data-icon="key" title="API keys">Keys</button>
+      </div>
+      <div id="conn" class="conn">connecting…</div>
+    </footer>
+  </aside>
+
+  <main id="main">
+    <!-- session view -->
+    <section id="view-session" class="view" hidden>
+      <header class="drag head">
+        <div class="title-wrap">
+          <h1 id="s-title"></h1>
+          <span id="s-status" class="pill"></span>
+          <span id="s-branch" class="branch-chip" hidden></span>
+          <span id="s-cost" class="muted"></span>
+        </div>
+        <div class="controls no-drag">
+          <label>Runner <select id="s-runner"></select></label>
+          <label>Key <select id="s-key"></select></label>
+          <label>Model <input id="s-model" placeholder="default" size="14"></label>
+          <span class="sep"></span>
+          <button id="s-pause" data-icon="pause" title="Pause: end the running turn and hold the queue">Pause</button>
+          <button id="s-folder" class="icon" data-icon="folder" title="Open the spike folder"></button>
+          <button id="s-code" class="icon" data-icon="code" title="Open the working copy in VS Code" hidden></button>
+          <button id="s-media" class="icon" data-icon="image" title="Collapse or expand media in the chat"></button>
+          <button id="s-files" class="icon" data-icon="panel" title="Show or hide the files panel"></button>
+          <button id="s-close" class="icon" data-icon="x" title="Close: pause and hide from the list. The folder stays."></button>
+        </div>
+      </header>
+      <nav class="tabs" id="s-tabs" hidden>
+        <button type="button" class="tab on" data-tab="chat" data-icon="chat">Chat</button>
+        <button type="button" class="tab" data-tab="git" data-icon="branch">Git <span id="git-count" class="count"></span></button>
+      </nav>
+      <div id="transcript"></div>
+      <div id="gitview" hidden>
+        <div class="git-list">
+          <div class="git-bar">
+            <span id="git-branch" class="branch-chip"></span>
+            <span id="git-ab" class="muted"></span>
+            <button type="button" id="git-refresh" class="icon ghost" data-icon="reopen" title="Refresh"></button>
+          </div>
+          <details class="git-sec" open>
+            <summary>Changes <span id="git-changes-count" class="count"></span></summary>
+            <div id="git-changes"></div>
+          </details>
+          <details class="git-sec" open>
+            <summary>Graph</summary>
+            <div id="git-graph"></div>
+          </details>
+        </div>
+        <div class="git-diff">
+          <div id="diff-head" class="diff-head muted">Pick a file to see its diff</div>
+          <div id="diff-body"></div>
+        </div>
+      </div>
+      <form id="composer">
+        <div class="attach-list" id="attach-list"></div>
+        <div class="composer-row">
+        <input type="file" id="attach-input" accept="image/*" multiple hidden>
+        <button type="button" id="attach-btn" class="icon ghost" data-icon="clip" title="Attach images (or paste or drop them)"></button>
+        <textarea id="input" rows="2" placeholder="Message this session — Enter sends, Shift+Enter for a new line. Paste or drop images."></textarea>
+        <button type="submit" class="primary icon" data-icon="send" title="Send (Enter)"></button>
+        </div>
+      </form>
+    </section>
+
+    <!-- new session -->
+    <section id="view-new" class="view" hidden>
+      <header class="drag head"><h1>New session</h1></header>
+      <form id="new-form" class="panel">
+        <div class="seg" role="radiogroup" aria-label="Where the agent works">
+          <label class="seg-opt"><input type="radio" name="mode" value="fresh" checked><span data-icon="spark">Fresh</span></label>
+          <label class="seg-opt"><input type="radio" name="mode" value="repo"><span data-icon="branch">In a repo</span></label>
+        </div>
+        <p class="hint" id="mode-hint">A new spike folder. Good for experiments, renders and one-offs.</p>
+        <div id="repo-fields" class="repo-fields" hidden>
+          <div class="repo-pick">
+            <label class="grow">Repository <input name="repo" placeholder="~/Documents/mojulo"></label>
+            <button type="button" id="repo-browse" data-icon="folder">Choose…</button>
+          </div>
+          <p class="hint" id="repo-info"></p>
+          <div class="grid">
+            <label>Branch from <select name="base"></select></label>
+            <label class="check"><input type="checkbox" name="worktree" checked> Own branch in a separate worktree</label>
+          </div>
+        </div>
+        <div class="grid">
+          <label>Runner <select name="runner"></select></label>
+          <label>Key <select name="key"></select></label>
+          <label>Model <input name="model" placeholder="default"></label>
+        </div>
+        <label>First message
+          <textarea name="prompt" rows="6" placeholder="Make a looping 4-bar synth pad and render its waveform as a PNG"></textarea>
+        </label>
+        <div class="attach-list" id="new-attach-list"></div>
+        <input type="file" id="new-attach-input" accept="image/*" multiple hidden>
+        <button type="button" id="new-attach-btn" data-icon="clip">Attach images</button>
+        <p id="new-error" class="error"></p>
+        <button type="submit" class="primary" data-icon="play">Start</button>
+      </form>
+    </section>
+
+    <!-- keys -->
+    <section id="view-keys" class="view" hidden>
+      <header class="drag head"><h1>Keys</h1></header>
+      <div class="panel">
+        <p class="muted">Stored in ~/.stando/keys.json, readable only by you. Values never come back to this window.</p>
+        <table id="keys-table"></table>
+        <h2>Add a key</h2>
+        <form id="key-form" class="grid">
+          <label>Name <input name="name" placeholder="anth-work" required></label>
+          <label>Provider <select name="provider"></select></label>
+          <label class="wide">Value <input name="value" type="password" autocomplete="off" required></label>
+          <p id="key-error" class="error wide"></p>
+          <button type="submit" class="primary" data-icon="key">Save key</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="view-empty" class="view empty">
+      <div class="drag head"></div>
+      <div class="empty-body">
+        <h1 id="empty-title">Start your first session</h1>
+        <p class="muted" id="empty-body">Pick a runner and a key, give it a first message. It keeps running when you close this window.</p>
+        <button id="empty-new" class="primary" data-icon="plus">New session</button>
+      </div>
+    </section>
+  </main>
+
+  <aside id="files" hidden>
+    <div class="drag files-head">
+      <span class="files-title">Files <span id="file-count" class="count"></span></span>
+      <button id="files-min" class="icon ghost" data-icon="minimize" title="Minimize files"></button>
+    </div>
+    <div id="file-grid"></div>
+  </aside>
+
+  <script src="render.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "stando",
+  "version": "0.1.0",
+  "description": "Agent multiplexer: one daemon supervises agent CLI sessions; an Electron app and a CLI view and steer them.",
+  "type": "module",
+  "private": true,
+  "bin": { "stando": "cli/stando.js" },
+  "main": "app/main.js",
+  "scripts": {
+    "app": "electron .",
+    "daemon": "node daemon/main.js",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "electron": "44.7.0"
+  }
+}

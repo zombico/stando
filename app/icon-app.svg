@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#1f1b12"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#3a3020" stroke-width="6"/>
+  <g transform="translate(160 160) scale(11)">
+  <defs>
+    <!-- sideways 8: two equal round holes -->
+    <mask id="eight">
+      <rect width="64" height="64" fill="#fff"/>
+      <circle cx="29.7" cy="16.5" r="2.5" fill="#000"/>
+      <circle cx="34.3" cy="16.5" r="2.5" fill="#000"/>
+    </mask>
+    <clipPath id="right"><rect x="32" width="32" height="64"/></clipPath>
+    <!-- whole head: blade plus the spine that runs down into the collar -->
+    <path id="head" d="M32 1.5 C43.5 9 58.5 26 60.5 56 L46.5 51.5 C46 42 43 34.5 37 31 L35.6 45 L28.4 45 L27 31 C21 34.5 18 42 17.5 51.5 L3.5 56 C5.5 26 20.5 9 32 1.5 Z"/>
+    <!-- gold body: the head inset from its outer edge, leaving a light rim -->
+    <path id="gold" d="M32 7.5 C41 14 54 28.5 55.6 53.4 L46.5 51.5 C46 42 43 34.5 37 31 L35.6 45 L28.4 45 L27 31 C21 34.5 18 42 17.5 51.5 L8.4 53.4 C10 28.5 23 14 32 7.5 Z"/>
+    <path id="collar" d="M27.2 45 L36.8 45 L38 48 L36.4 51 L27.6 51 L26 48 Z"/>
+    <rect id="wood" x="29.2" y="51" width="5.6" height="13"/>
+  </defs>
+  <g transform="translate(32 32) rotate(45) scale(0.8) translate(-32 -32)">
+  
+    <!-- wooden shaft -->
+    <use href="#wood" fill="#8a5a2b"/>
+    <rect x="32" y="51" width="2.8" height="13" fill="#5e3a18"/>
+    <path d="M30.6 53 V63 M33.4 55 V62" stroke="#4a2c10" stroke-width=".6" opacity=".7"/>
+    <use href="#wood" fill="none" stroke="#1e1408" stroke-width="2"/>
+  
+    <!-- blade: light rim, then gold -->
+    <g mask="url(#eight)">
+      <use href="#head" fill="#eef2f5"/>
+      <use href="#head" clip-path="url(#right)" fill="#b4bfca"/>
+      <use href="#gold" fill="#f2c23a"/>
+      <use href="#gold" clip-path="url(#right)" fill="#c58f0e"/>
+    </g>
+    <path d="M32 21 V44" stroke="#8a6206" stroke-width="1" opacity=".55"/>
+    <use href="#gold" fill="none" stroke="#7a5605" stroke-width=".9" stroke-linejoin="round" mask="url(#eight)"/>
+    <use href="#head" fill="none" stroke="#1e1408" stroke-width="2.2" stroke-linejoin="round"/>
+    <!-- one outline around the combined hole, no seam between the two rounds -->
+    <g fill="#1e1408" mask="url(#eight)">
+      <circle cx="29.7" cy="16.5" r="3.25"/>
+      <circle cx="34.3" cy="16.5" r="3.25"/>
+    </g>
+  
+    <!-- gold collar joining blade and shaft -->
+    <use href="#collar" fill="#e6b52c"/>
+    <path d="M32 45 L36.8 45 L38 48 L36.4 51 L32 51 Z" fill="#b8840c"/>
+    <use href="#collar" fill="none" stroke="#1e1408" stroke-width="1.8" stroke-linejoin="round"/>
+  </g>
+</g>
+</svg>
