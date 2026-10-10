@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { SPIKES, OWN_FILES, lineReader } from '../shared/protocol.js';
 import { HOME } from '../shared/protocol.js';
 import { runners, keyEnv, recordSpend, PROVIDERS } from './config.js';
-import { repoRoot, currentBranch, addWorktree } from './git.js';
+import { repoRoot, currentBranch, addWorktree, isDirty, isMerged, removeWorktree, restoreWorktree, deleteBranch, branchExists } from './git.js';
 
 function spikeNote(meta) {
   const base = 'You are running inside stando, unattended, with approvals off. Refer to files by absolute path. ';
@@ -180,7 +180,7 @@ export class Session {
   }
 
   pump() {
-    if (this.proc || this.meta.status === 'paused') return;
+    if (this.proc || this.meta.status === 'paused' || this.meta.worktreeGone) return;
     let lines = [];
     try { lines = fs.readFileSync(path.join(this.dir, 'inbox.jsonl'), 'utf8').split('\n').filter(Boolean); } catch {}
     if (lines.length <= this.meta.inboxRead) return;
@@ -296,6 +296,46 @@ export class Session {
     if (this.meta.status === 'paused') this.meta.status = 'idle';
     this.saveMeta();
     this.pump();
+  }
+
+  // ---------- worktree lifecycle ----------
+
+  // Removes this session's worktree and, if asked, its branch. Refuses to lose work unless forced:
+  // uncommitted changes, or deleting a branch that isn't merged into its base.
+  async cleanUp({ deleteBranch: dropBranch = false, force = false } = {}) {
+    const m = this.meta;
+    if (m.mode !== 'repo' || !m.worktree) throw new Error('only sessions with their own worktree can be cleaned up');
+    if (this.proc) throw new Error('pause the session first');
+    if (!m.worktreeGone && fs.existsSync(m.worktree) && !force && await isDirty(m.worktree)) {
+      throw new Error('the worktree has uncommitted changes; commit or discard them, or force');
+    }
+    const merged = await isMerged(m.repo, m.branch, m.base);
+    if (dropBranch && !merged && !force) throw new Error(`${m.branch} isn't merged into ${m.base}; merge it, keep the branch, or force`);
+
+    if (!m.worktreeGone) await removeWorktree(m.repo, m.worktree, { force });
+    m.worktreeGone = true;
+    if (dropBranch && await branchExists(m.repo, m.branch)) {
+      await deleteBranch(m.repo, m.branch, { force: !merged });
+      m.branchDeleted = true;
+    }
+    m.closed = true;
+    if (m.status !== 'paused') m.status = 'paused';
+    this.append({ t: 'note', text: `Worktree removed${m.branchDeleted ? ` and branch ${m.branch} deleted` : `; branch ${m.branch} kept`}.` });
+    this.saveMeta();
+    return { merged, branchDeleted: !!m.branchDeleted };
+  }
+
+  // Brings a cleaned-up session back to life if its branch still exists.
+  async ensureWorktree() {
+    const m = this.meta;
+    if (!m.worktreeGone) return;
+    if (m.branchDeleted || !await branchExists(m.repo, m.branch)) {
+      throw new Error(`branch ${m.branch} no longer exists; start a new session instead`);
+    }
+    await restoreWorktree(m.repo, m.worktree, m.branch);
+    m.worktreeGone = false;
+    this.append({ t: 'note', text: `Worktree restored from ${m.branch}.` });
+    this.saveMeta();
   }
 
   setClosed(closed) {

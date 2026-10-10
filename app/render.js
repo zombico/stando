@@ -95,6 +95,12 @@ const ICONS = {
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/>',
   code: '<path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>',
   chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  minus: '<path d="M6 12h12"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  merge: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10M6 7c0 4 4 5 10 5"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>',
+  flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
     clip: '<path d="M20 11.5l-7.6 7.6a5 5 0 0 1-7.1-7.1l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/>',
 };
 

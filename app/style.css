@@ -260,8 +260,29 @@ label.check input { width: auto; }
 /* ---------- git view ---------- */
 #gitview { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 42%) minmax(0, 1fr); }
 .git-list { overflow-y: auto; border-right: 1px solid var(--border); }
-.git-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 1; }
-.git-bar .icon { margin-left: auto; }
+.git-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+.git-acts { margin-left: auto; display: flex; gap: 2px; align-items: center; }
+.git-acts .small { margin-right: 4px; white-space: nowrap; }
+.git-bar .branch-chip { max-width: 100%; min-width: 0; }
+#git-ab { white-space: nowrap; font-size: 12px; }
+.git-error { margin: 8px 12px 0; padding: 6px 10px; border-radius: 7px; font-size: 12px; color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
+.git-gone { padding: 16px 12px; font-size: 13px; color: var(--muted); }
+.git-gone p { margin: 0 0 8px; }
+.finish-panel { margin: 10px 12px; padding: 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--panel); }
+.finish-panel h3 { margin: 0 0 4px; font-size: 13px; }
+.finish-panel p { margin: 0 0 8px; font-size: 12px; }
+.finish-acts { display: flex; gap: 6px; margin-top: 8px; }
+.commit-box { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 4px; }
+.commit-box textarea { min-height: 38px; font-size: 13px; }
+.commit-box button { align-self: stretch; }
+.git-sec > summary { display: flex; align-items: center; gap: 4px; }
+.sec-act { margin-left: auto; width: 22px !important; height: 22px !important; padding: 3px !important; visibility: hidden; }
+.git-sec > summary:hover .sec-act { visibility: visible; }
+.file-acts { display: none; gap: 1px; margin-left: auto; }
+.gfile:hover .file-acts { display: flex; }
+.gfile:hover .file-acts + .st { margin-left: 4px; }
+.file-acts + .st { margin-left: auto; }
+.gfile { align-items: center; }
 .git-sec > summary { list-style: none; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 8px 12px 4px; }
 .git-sec > summary::-webkit-details-marker { display: none; }
 .pad { padding: 8px 12px; font-size: 12px; }

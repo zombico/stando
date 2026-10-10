@@ -27,6 +27,7 @@ function find(ref) {
 function repoCwd(ref) {
   const s = find(ref);
   if (s.meta.mode !== 'repo') throw new Error('not a repo session');
+  if (s.meta.worktreeGone) throw new Error('this session\'s worktree was removed; reopen it to restore');
   return s.meta.cwd;
 }
 
@@ -59,9 +60,10 @@ const ops = {
     if (prompt || images?.length) s.send(prompt, 'new', images);
     return s.meta;
   },
-  send: ({ session, text, source, images }) => {
+  send: async ({ session, text, source, images }) => {
     if (!text?.trim() && !images?.length) throw new Error('empty message');
     const s = find(session);
+    await s.ensureWorktree();
     s.resume();
     s.send(text, source, images);
     return true;
@@ -75,10 +77,10 @@ const ops = {
   // Pause ends the running turn and holds the queue; sending a message or resume picks it back up.
   pause: ({ session }) => { find(session).stop(); return true; },
   stop: ({ session }) => { find(session).stop(); return true; },
-  resume: ({ session }) => { find(session).resume(); return true; },
+  resume: async ({ session }) => { const s = find(session); await s.ensureWorktree(); s.resume(); return true; },
   // Close pauses the session and hides it from the list; its folder and history stay, and reopen brings it back.
   close: ({ session }) => { find(session).setClosed(true); return true; },
-  reopen: ({ session }) => { find(session).setClosed(false); return true; },
+  reopen: async ({ session }) => { const s = find(session); await s.ensureWorktree(); s.setClosed(false); return true; },
   'keys.add': (args) => { addKey(args); return keysPublic(); },
   'keys.remove': ({ name }) => { removeKey(name); return keysPublic(); },
   // Git view, read-only. Runs in the session's working copy.
@@ -87,6 +89,59 @@ const ops = {
   'git.commit': ({ session, hash }) => git.commitFiles(repoCwd(session), hash),
   'git.diff': ({ session, file, hash, untracked }) => git.diff(repoCwd(session), { file, hash, untracked }),
   'git.branches': ({ session }) => git.branches(repoCwd(session)),
+  'git.stage': ({ session, files, all }) => (all ? git.stageAll(repoCwd(session)) : git.stage(repoCwd(session), files)),
+  'git.unstage': ({ session, files, all }) => (all ? git.unstageAll(repoCwd(session)) : git.unstage(repoCwd(session), files)),
+  'git.discard': ({ session, file, untracked }) => git.discard(repoCwd(session), file, untracked),
+  'git.commitChanges': async ({ session, message }) => {
+    const s = find(session);
+    const hash = await git.commit(repoCwd(session), message);
+    s.append({ t: 'note', text: `Committed ${hash}: ${message.trim().split('\n')[0]}` });
+    return hash;
+  },
+  'git.merge': async ({ session }) => {
+    const s = find(session);
+    const m = s.meta;
+    if (!m.worktree) throw new Error('this session works on the base branch directly; there is nothing to merge');
+    if (s.proc) throw new Error('pause the session first');
+    const hash = await git.mergeInto(m.repo, m.branch, m.base);
+    s.append({ t: 'note', text: `Merged ${m.branch} into ${m.base} (${hash}).` });
+    return hash;
+  },
+  'git.push': async ({ session }) => {
+    const s = find(session);
+    await git.push(repoCwd(session), s.meta.branch);
+    s.append({ t: 'note', text: `Pushed ${s.meta.branch} to origin.` });
+    return true;
+  },
+  'git.merged': async ({ session }) => {
+    const m = find(session).meta;
+    return m.worktree ? git.isMerged(m.repo, m.branch, m.base) : null;
+  },
+  cleanup: ({ session, deleteBranch, force }) => find(session).cleanUp({ deleteBranch, force }),
+  // Bulk cleanup for closed sessions. Only sessions that are safe to clean (worktree clean,
+  // branch merged) are touched unless forced; dryRun reports without changing anything.
+  clean: async ({ dryRun = false, force = false, all = false }) => {
+    const report = [];
+    for (const s of sessions.values()) {
+      const m = s.meta;
+      if (m.mode !== 'repo' || !m.worktree || m.worktreeGone) continue;
+      if (!m.closed && !all) continue;
+      if (s.proc) { report.push({ id: m.id, action: 'skip', reason: 'running' }); continue; }
+      let dirty = false;
+      try { dirty = fs.existsSync(m.worktree) && await git.isDirty(m.worktree); } catch {}
+      const merged = await git.isMerged(m.repo, m.branch, m.base).catch(() => false);
+      if (!force && (dirty || !merged)) {
+        report.push({ id: m.id, action: 'skip', reason: dirty ? 'uncommitted changes' : `not merged into ${m.base}` });
+        continue;
+      }
+      if (dryRun) { report.push({ id: m.id, action: 'would remove', branch: merged ? 'delete' : 'keep' }); continue; }
+      try {
+        await s.cleanUp({ deleteBranch: merged, force });
+        report.push({ id: m.id, action: 'removed', branch: merged ? 'deleted' : 'kept' });
+      } catch (e) { report.push({ id: m.id, action: 'failed', reason: e.message }); }
+    }
+    return report;
+  },
   'git.probe': async ({ path: p }) => {
     const root = await git.repoRoot(p.replace(/^~(?=$|\/)/, process.env.HOME));
     return { root, branch: await git.currentBranch(root), branches: (await git.branches(root, { local: true })).map((b) => b.name) };

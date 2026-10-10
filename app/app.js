@@ -200,6 +200,9 @@ async function openSession(id) {
   state.lastTurn = null;
   state.git.selected = null;
   state.git.openCommit = null;
+  $('finish-panel').hidden = true;
+  gitError('');
+  $('commit-msg').value = '';
   $('git-changes').replaceChildren();
   $('git-graph').replaceChildren();
   $('diff-body').replaceChildren();
@@ -237,19 +240,58 @@ function gitRefreshSoon() {
   state.git.timer = setTimeout(loadGit, 700);
 }
 
+const cleanErr = (err) => err.message.replace(/^Error invoking remote method 'call': Error: /, '');
+
+function gitError(msg) {
+  $('git-error').textContent = msg || '';
+  $('git-error').hidden = !msg;
+}
+
+// Runs a git action for the open session, shows any error in the git view, then refreshes.
+async function gitAct(op, args = {}) {
+  gitError('');
+  try { return await stando.call(op, { session: state.current, ...args }); }
+  catch (err) { gitError(cleanErr(err)); return undefined; }
+  finally {
+    // These change the session itself (worktree gone or back), not just the repo.
+    if (op === 'cleanup' || op === 'reopen') await refreshState();
+    loadGit();
+  }
+}
+
 async function loadGit() {
   const id = state.current;
   const m = state.sessions.get(id);
   if (!m || m.mode !== 'repo') return;
+  const gone = !!m.worktreeGone;
+  $('git-gone').hidden = !gone;
+  $('git-work').hidden = gone;
+  $('git-merge').hidden = !m.worktree || gone;
+  $('git-push').hidden = gone;
+  $('git-finish').hidden = !m.worktree || gone;
+  $('git-graph').closest('.git-sec').hidden = gone;
+  $('git-restore').hidden = !!m.branchDeleted;
+  $('git-gone').querySelector('p').textContent = m.branchDeleted
+    ? 'This session is finished: its worktree was removed and its branch deleted.'
+    : `This session's worktree was removed. Its branch ${m.branch} is kept.`;
+  $('git-merge').replaceChildren(icon('merge', 14), `Merge into ${m.base}`);
+  if (gone) {
+    $('git-branch').replaceChildren(icon('branch', 12), m.branch);
+    $('git-ab').textContent = m.branchDeleted ? 'branch deleted' : 'worktree removed';
+    $('git-count').textContent = '';
+    $('git-graph').replaceChildren();
+    return;
+  }
   let st;
   let log;
   try {
     [st, log] = await Promise.all([stando.call('git.status', { session: id }), stando.call('git.log', { session: id })]);
   } catch (err) {
-    $('git-changes').replaceChildren(el('div', { class: 'muted pad', text: err.message.replace(/^Error invoking remote method 'call': Error: /, '') }));
+    gitError(cleanErr(err));
     return;
   }
   if (id !== state.current) return;
+  state.git.status = st;
   $('git-count').textContent = st.files.length || '';
   if (state.tab !== 'git') return;
   $('git-branch').replaceChildren(icon('branch', 12), st.branch || '(detached)');
@@ -258,18 +300,58 @@ async function loadGit() {
   renderGraph(log);
 }
 
+function fileRow(f, letter, key, actions) {
+  return el('div', {
+    class: 'gfile' + (state.git.selected === key ? ' sel' : ''),
+    title: f.path,
+    onclick: (e) => showDiff(e.currentTarget, key, { file: f.path, untracked: !!f.untracked }, f.path, 'working tree'),
+  }, ...pathParts(f.path),
+  el('span', { class: 'file-acts' }, ...actions.map(([name, title, fn]) => el('button', {
+    type: 'button', class: 'icon ghost row-act', title,
+    onclick: (e) => { e.stopPropagation(); fn(); },
+  }, icon(name, 14)))),
+  statusBadge(letter));
+}
+
 function renderChanges(files) {
-  $('git-changes-count').textContent = files.length || '';
-  if (!files.length) { $('git-changes').replaceChildren(el('div', { class: 'muted pad', text: 'Working tree clean.' })); return; }
-  $('git-changes').replaceChildren(...files.map((f) => {
-    const letter = f.untracked ? 'U' : f.conflict ? '!' : (f.unstaged || f.staged);
-    const key = 'w:' + f.path;
-    return el('div', {
-      class: 'gfile' + (state.git.selected === key ? ' sel' : ''),
-      title: f.path + (f.staged && !f.untracked ? ' (staged)' : ''),
-      onclick: (e) => showDiff(e.currentTarget, key, { file: f.path, untracked: !!f.untracked }, f.path, 'working tree'),
-    }, ...pathParts(f.path), statusBadge(letter));
-  }));
+  const staged = files.filter((f) => f.staged && !f.untracked);
+  const unstaged = files.filter((f) => f.unstaged || f.untracked);
+  $('staged-sec').hidden = !staged.length;
+  $('git-staged-count').textContent = staged.length || '';
+  $('git-changes-count').textContent = unstaged.length || '';
+  $('commit-btn').replaceChildren(icon('check', 14), staged.length ? 'Commit' : files.length ? `Commit all (${files.length})` : 'Commit');
+  $('git-staged').replaceChildren(...staged.map((f) => fileRow(f, f.staged, 's:' + f.path, [
+    ['minus', 'Unstage', () => gitAct('git.unstage', { files: [f.path] })],
+  ])));
+  $('git-changes').replaceChildren(...(unstaged.length ? unstaged.map((f) => fileRow(f, f.untracked ? 'U' : f.conflict ? '!' : f.unstaged, 'w:' + f.path, [
+    ['undo', f.untracked ? 'Delete this new file' : 'Discard changes', () => {
+      if (confirm(f.untracked ? `Delete ${f.path}? It was never committed, so it can't be recovered.` : `Discard your changes to ${f.path}?`)) {
+        gitAct('git.discard', { file: f.path, untracked: !!f.untracked });
+      }
+    }],
+    ['plus', 'Stage', () => gitAct('git.stage', { files: [f.path] })],
+  ])) : [el('div', { class: 'muted pad', text: staged.length ? 'Everything is staged.' : 'Working tree clean.' })]));
+}
+
+async function commitNow() {
+  const message = $('commit-msg').value.trim();
+  if (!message) { gitError('Write a commit message first.'); $('commit-msg').focus(); return; }
+  const hash = await gitAct('git.commitChanges', { message });
+  if (hash) $('commit-msg').value = '';
+}
+
+async function openFinish() {
+  const m = state.sessions.get(state.current);
+  const merged = await stando.call('git.merged', { session: m.id }).catch(() => null);
+  const dirty = !!state.git.status?.files.length;
+  $('finish-state').textContent = [
+    merged ? `${m.branch} is merged into ${m.base}.` : `${m.branch} is not merged into ${m.base} yet.`,
+    dirty ? 'The worktree has uncommitted changes.' : 'The worktree is clean.',
+  ].join(' ');
+  $('finish-delete').checked = !!merged;
+  $('finish-force').checked = false;
+  $('finish-force-row').hidden = !dirty && merged;
+  $('finish-panel').hidden = false;
 }
 
 function renderGraph({ commits, head }) {
@@ -556,7 +638,29 @@ $('new-form').worktree.onchange = (e) => {
 
 // Session tabs and git view.
 for (const b of document.querySelectorAll('#s-tabs .tab')) b.onclick = () => setTab(b.dataset.tab);
-$('git-refresh').onclick = loadGit;
+$('git-refresh').onclick = () => { gitError(''); loadGit(); };
+$('commit-btn').onclick = commitNow;
+$('commit-msg').onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitNow(); } };
+$('commit-msg').oninput = () => gitError('');
+$('stage-all').append(icon('plus', 14));
+$('unstage-all').append(icon('minus', 14));
+$('stage-all').onclick = (e) => { e.preventDefault(); gitAct('git.stage', { all: true }); };
+$('unstage-all').onclick = (e) => { e.preventDefault(); gitAct('git.unstage', { all: true }); };
+$('git-merge').onclick = () => {
+  const m = state.sessions.get(state.current);
+  if (confirm(`Merge ${m.branch} into ${m.base}?\n\nThis runs in your working copy at ${m.repo}, which must be on ${m.base} with no uncommitted changes.`)) gitAct('git.merge');
+};
+$('git-push').onclick = () => {
+  const m = state.sessions.get(state.current);
+  if (confirm(`Push ${m.branch} to origin?`)) gitAct('git.push');
+};
+$('git-finish').onclick = openFinish;
+$('finish-cancel').onclick = () => { $('finish-panel').hidden = true; };
+$('finish-go').onclick = async () => {
+  const r = await gitAct('cleanup', { deleteBranch: $('finish-delete').checked, force: $('finish-force').checked });
+  if (r) $('finish-panel').hidden = true;
+};
+$('git-restore').onclick = () => gitAct('reopen');
 $('s-code').onclick = () => { const m = state.sessions.get(state.current); if (m) stando.openInEditor(m.cwd); };
 $('attach-btn').onclick = () => $('attach-input').click();
 $('new-attach-btn').onclick = () => $('new-attach-input').click();
@@ -666,7 +770,11 @@ stando.onPush((msg) => {
       const isNew = !state.sessions.has(msg.meta.id);
       state.sessions.set(msg.meta.id, msg.meta);
       renderSidebar();
-      if (msg.meta.id === state.current) { renderHeader(); updateWorking(); }
+      if (msg.meta.id === state.current) {
+        renderHeader();
+        updateWorking();
+        if (msg.meta.mode === 'repo' && state.tab === 'git') gitRefreshSoon();
+      }
       if (isNew && !state.current && !$('view-empty').hidden) openSession(msg.meta.id);
       break;
     }

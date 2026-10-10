@@ -63,12 +63,44 @@
           <div class="git-bar">
             <span id="git-branch" class="branch-chip"></span>
             <span id="git-ab" class="muted"></span>
-            <button type="button" id="git-refresh" class="icon ghost" data-icon="reopen" title="Refresh"></button>
+            <span class="git-acts">
+              <button type="button" id="git-merge" class="small" data-icon="merge" title="Merge this branch into its base, in your working copy">Merge</button>
+              <button type="button" id="git-push" class="icon ghost" data-icon="upload" title="Push this branch to origin"></button>
+              <button type="button" id="git-finish" class="icon ghost" data-icon="flag" title="Finish: remove the worktree, optionally delete the branch"></button>
+              <button type="button" id="git-refresh" class="icon ghost" data-icon="reopen" title="Refresh"></button>
+            </span>
           </div>
-          <details class="git-sec" open>
-            <summary>Changes <span id="git-changes-count" class="count"></span></summary>
-            <div id="git-changes"></div>
-          </details>
+          <div id="git-error" class="git-error" hidden></div>
+          <div id="git-gone" class="git-gone" hidden>
+            <p>This session's worktree was removed.</p>
+            <button type="button" id="git-restore" data-icon="reopen">Reopen and restore it</button>
+          </div>
+          <div id="finish-panel" class="finish-panel" hidden>
+            <h3>Finish this session</h3>
+            <p id="finish-state" class="muted"></p>
+            <label class="check"><input type="checkbox" id="finish-delete"> Delete the branch too</label>
+            <label class="check" id="finish-force-row"><input type="checkbox" id="finish-force"> Force: throw away uncommitted changes and unmerged commits</label>
+            <div class="finish-acts">
+              <button type="button" id="finish-go" class="primary" data-icon="flag">Remove worktree</button>
+              <button type="button" id="finish-cancel">Cancel</button>
+            </div>
+          </div>
+          <div id="git-work">
+            <div class="commit-box">
+              <textarea id="commit-msg" rows="2" placeholder="Commit message (⌘Enter to commit)"></textarea>
+              <button type="button" id="commit-btn" class="primary" data-icon="check">Commit</button>
+            </div>
+            <details class="git-sec" open id="staged-sec">
+              <summary>Staged changes <span id="git-staged-count" class="count"></span>
+                <button type="button" class="icon ghost sec-act" id="unstage-all" title="Unstage all"></button></summary>
+              <div id="git-staged"></div>
+            </details>
+            <details class="git-sec" open>
+              <summary>Changes <span id="git-changes-count" class="count"></span>
+                <button type="button" class="icon ghost sec-act" id="stage-all" title="Stage all"></button></summary>
+              <div id="git-changes"></div>
+            </details>
+          </div>
           <details class="git-sec" open>
             <summary>Graph</summary>
             <div id="git-graph"></div>

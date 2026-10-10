@@ -114,3 +114,81 @@ export async function branches(dir, { local = false } = {}) {
     return { name, hash, current: head === '*' };
   }).filter((b) => !b.name.endsWith('/HEAD'));
 }
+
+// ---------- changes (the session's own working copy) ----------
+
+export const stage = (dir, files) => git(dir, ['add', '--', ...files]);
+export const stageAll = (dir) => git(dir, ['add', '-A']);
+export const unstage = (dir, files) => git(dir, ['restore', '--staged', '--', ...files]);
+export const unstageAll = (dir) => git(dir, ['reset', '-q']);
+
+// Throws away a file's changes. Untracked files are deleted; the path must stay inside `dir`.
+export async function discard(dir, file, untracked) {
+  if (untracked) {
+    const abs = path.resolve(dir, file);
+    if (!abs.startsWith(path.resolve(dir) + path.sep)) throw new Error('path is outside the working copy');
+    fs.rmSync(abs, { recursive: true, force: true });
+    return;
+  }
+  await git(dir, ['restore', '--staged', '--worktree', '--source=HEAD', '--', file]);
+}
+
+// Commits what's staged; with nothing staged, stages everything first (like VS Code's smart commit).
+export async function commit(dir, message) {
+  if (!message?.trim()) throw new Error('write a commit message');
+  const staged = (await git(dir, ['diff', '--cached', '--name-only'])).trim();
+  if (!staged) {
+    await stageAll(dir);
+    if (!(await git(dir, ['diff', '--cached', '--name-only'])).trim()) throw new Error('nothing to commit');
+  }
+  await git(dir, ['commit', '-q', '-m', message.trim()]);
+  return (await git(dir, ['rev-parse', '--short', 'HEAD'])).trim();
+}
+
+export const push = (dir, branch) => git(dir, ['push', '-u', 'origin', branch]);
+
+// ---------- branch and worktree lifecycle (run in the main repository) ----------
+
+export async function isDirty(dir) {
+  return (await git(dir, ['status', '--porcelain'])).trim() !== '';
+}
+
+export async function isMerged(root, branch, base) {
+  try { await git(root, ['merge-base', '--is-ancestor', branch, base]); return true; }
+  catch { return false; }
+}
+
+export async function branchExists(root, branch) {
+  try { await git(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]); return true; }
+  catch { return false; }
+}
+
+// Merges `branch` into `base` inside the operator's own working copy, but only when that copy is
+// on `base` with no tracked changes, so nothing of theirs is disturbed. Conflicts abort the merge.
+export async function mergeInto(root, branch, base) {
+  const current = await currentBranch(root);
+  if (current !== base) throw new Error(`your working copy at ${root} is on ${current}; check out ${base} there to merge`);
+  if ((await git(root, ['status', '--porcelain', '--untracked-files=no'])).trim()) {
+    throw new Error(`your working copy at ${root} has uncommitted changes; commit or stash them first`);
+  }
+  try {
+    await git(root, ['merge', '--no-ff', '--no-edit', branch]);
+  } catch (e) {
+    await git(root, ['merge', '--abort'], { okCodes: [0, 128] }).catch(() => {});
+    throw new Error(`merge stopped on conflicts and was undone; resolve them in the session's branch first (${e.message.split('\n')[0]})`);
+  }
+  return (await git(root, ['rev-parse', '--short', 'HEAD'])).trim();
+}
+
+export async function removeWorktree(root, worktree, { force = false } = {}) {
+  if (fs.existsSync(worktree)) await git(root, ['worktree', 'remove', ...(force ? ['--force'] : []), worktree]);
+  await git(root, ['worktree', 'prune']);
+}
+
+export async function restoreWorktree(root, worktree, branch) {
+  fs.mkdirSync(path.dirname(worktree), { recursive: true });
+  await git(root, ['worktree', 'prune']);
+  await git(root, ['worktree', 'add', worktree, branch]);
+}
+
+export const deleteBranch = (root, branch, { force = false } = {}) => git(root, ['branch', force ? '-D' : '-d', branch]);

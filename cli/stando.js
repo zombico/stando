@@ -25,6 +25,13 @@ const HELP = `stando — run agent CLIs as sessions you can watch and steer from
   stando keys              key profiles and today's spend
   stando keys add <name> <provider>   value is read hidden from the prompt or stdin
   stando keys rm <name>
+  stando commit <ref> "message"   commit in the session's worktree (stages everything if nothing is staged)
+  stando merge <ref>       merge the session's branch into its base, in your working copy (must be on base, clean)
+  stando push <ref>        push the session's branch to origin
+  stando finish <ref> [--keep-branch] [--force]
+        remove the session's worktree and delete its branch (only if merged, unless --force)
+  stando clean [-n] [--all] [--force]
+        clean up closed sessions that are merged and clean; -n shows what would happen
   stando name [new name]   show or rename your stando
   stando app               open the desktop app
   stando daemon            run the daemon in the foreground (logs to the terminal)
@@ -198,6 +205,36 @@ async function main() {
           if (m.closed && !all) return;
           console.log(`${String(i + 1).padStart(3)}  ${c(color[m.status] || '0', m.status.padEnd(8))} ${m.runner.padEnd(7)} ${(m.key || 'login').padEnd(12)} ${(m.mode === 'repo' ? m.branch : 'fresh').slice(0, 28).padEnd(28)} ${m.cost ? ('$' + m.cost.toFixed(2)).padStart(7) : ''.padStart(7)}  ${link(m.dir, m.id)}`);
         });
+        break;
+      }
+      case 'commit': {
+        const hash = await client.call('git.commitChanges', { session: rest[0], message: rest.slice(1).join(' ') });
+        console.log(`committed ${hash}`);
+        break;
+      }
+      case 'merge': {
+        const hash = await client.call('git.merge', { session: rest[0] });
+        console.log(`merged (${hash})`);
+        break;
+      }
+      case 'push':
+        await client.call('git.push', { session: rest[0] });
+        console.log('pushed');
+        break;
+      case 'finish': {
+        const f = parseFlags(rest, { '--keep-branch': true, '--force': true });
+        const r = await client.call('cleanup', { session: f._[0], deleteBranch: !f['keep-branch'], force: !!f.force });
+        console.log(`worktree removed; branch ${r.branchDeleted ? 'deleted' : 'kept'}${r.merged ? '' : dim(' (it was not merged)')}`);
+        break;
+      }
+      case 'clean': {
+        const f = parseFlags(rest, { '-n': true, '--dry-run': true, '--force': true, '--all': true });
+        const report = await client.call('clean', { dryRun: !!(f.n || f['dry-run']), force: !!f.force, all: !!f.all });
+        if (!report.length) console.log(dim('nothing to clean: no closed sessions with a worktree'));
+        for (const r of report) {
+          const col = r.action === 'removed' ? '32' : r.action === 'skip' ? '90' : r.action === 'failed' ? '31' : '33';
+          console.log(`  ${c(col, r.action.padEnd(12))} ${r.id}${r.branch ? dim(`  branch ${r.branch}`) : ''}${r.reason ? dim(`  ${r.reason}`) : ''}`);
+        }
         break;
       }
       case 'name': {

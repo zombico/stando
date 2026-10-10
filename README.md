@@ -53,9 +53,25 @@ stando run --repo ~/Documents/mojulo "fix the failing locale test"
 stando run --repo ~/Documents/mojulo --base 3.1-rc "…"
 ```
 
-Repo sessions get a Git tab in the app: changed files with diffs, and a commit graph with branch lanes and
-labels; click a commit to see its files and their diffs. It's read-only. Merge or delete a session's
-branch with git as usual, and remove its worktree with `git worktree remove ~/.stando/worktrees/<id>`.
+Repo sessions get a Git tab in the app:
+
+- **Changes:** staged and unstaged files with diffs; stage, unstage or discard per file; commit with a
+  message (with nothing staged, Commit commits everything).
+- **Graph:** the commit log across branches with lanes and labels; click a commit for its files and diffs.
+- **Merge into base:** merges the session's branch in your own working copy, which must be on the base
+  branch with no uncommitted changes. A conflicting merge is undone, not left half-done.
+- **Push:** pushes the session's branch to `origin`.
+- **Finish:** removes the worktree and, if you choose, deletes the branch. It refuses to lose work
+  (uncommitted changes, or an unmerged branch) unless you tick Force. Reopening a finished session whose
+  branch still exists restores its worktree.
+
+```bash
+stando commit 3 "fix locale fallback"
+stando merge 3                 # into its base, in your working copy
+stando finish 3                # remove the worktree; delete the branch if merged
+stando clean -n                # closed sessions that are merged and clean: what would be removed
+stando clean                   # remove them; --force also removes unmerged or dirty ones (branches kept)
+```
 
 ## Where things live
 
